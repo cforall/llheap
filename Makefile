@@ -27,7 +27,7 @@ libhThread-stats.so : HeapPerThread.cc HeapPerThread.h
 	${CXX} ${CXXFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -D__STATISTICS__ -DTLS
 
 clean :
-	rm -f ${OBJECTS}
+	rm -f ${OBJECTS} a.out
 
 test : ${OBJECTS}
 #	set -x
