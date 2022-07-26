@@ -1,6 +1,7 @@
 CXX := g++-10
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__DEBUG_PRT__
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
+SRCDIR := ${HOME}/software/llheap
 
 MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name
 OBJECTS = libhThread.o libhThread-stats.o libhThread.so libhThread-stats.so
@@ -39,8 +40,8 @@ test : ${OBJECTS}
 	for lk in "" "s" ; do
 		for sd in "" "-stats" ; do
 			echo ".$${lk}o linkage, $${sd:-no stats}"
-			echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=$${HOME}/heap -L${HOME}/heap}
-			${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=$${HOME}/heap -L${HOME}/heap}
+			echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=${SRCDIR} -L${SRCDIR}}
+			${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=${SRCDIR} -L${SRCDIR}}
 			${TIME} ./a.out
 			echo "\n#######################################\n"
 		done
