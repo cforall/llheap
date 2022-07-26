@@ -1000,8 +1000,7 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
 			if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, tsize ); // no memory
 			// Do not call strerror( errno ) as it may call malloc.
-			abort( "**** Error *** mmap failure: size:%zu %zu %zu error %d.",
-				   tsize, size, heapMaster.mmapStart, errno );
+			abort( "**** Error *** mmap failure: size:%zu %zu %zu error %d.", tsize, size, heapMaster.mmapStart, errno );
 		} // if
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
@@ -1054,7 +1053,7 @@ static inline void doFree( void * addr ) {
 	} else {
 		#ifdef __U_DEBUG__
 		// Set free memory to garbage so subsequent usages might fail.
-		memset( ((Storage *)header)->data, '\xde', freeHead->blockSize - sizeof( Storage ) );
+		memset( ((Storage *)header)->data, '\xde', freeHead->blockSize - sizeof(Storage) );
 		#endif // __U_DEBUG__
 
 		if ( LIKELY( heap == freeHead->homeManager ) ) { // belongs to this thread
@@ -1124,12 +1123,10 @@ static inline void doFree( void * addr ) {
 
 
 static inline void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
-	#ifdef __DEBUG__
 	checkAlign( alignment );							// check alignment
-	#endif // __DEBUG__
 
-	// if alignment <= default alignment, do normal malloc as two headers are unnecessary
-  if ( UNLIKELY( alignment <= __ALIGN__ ) ) return doMalloc( size STAT_ARG( STAT_NAME ) );
+	// if alignment <= default alignment or size == 0, do normal malloc as two headers are unnecessary
+  if ( UNLIKELY( alignment <= __ALIGN__ || size == 0 ) ) return doMalloc( size STAT_ARG( STAT_NAME ) );
 
 	// Allocate enough storage to guarantee an address on the alignment boundary, and sufficient space before it for
 	// administrative storage. NOTE, WHILE THERE ARE 2 HEADERS, THE FIRST ONE IS IMPLICITLY CREATED BY DOMALLOC.
@@ -1382,7 +1379,7 @@ extern "C" {
 	// nullptr, no operation is performed.
 	void free( void * addr ) {
 		// Detect free after thread-local storage destruction and use global stats in that case.
-		if ( UNLIKELY( addr == nullptr ) ) {			// special case
+	  if ( UNLIKELY( addr == nullptr ) ) {				// special case
 			#ifdef __STATISTICS__
 			if ( LIKELY( heapManager ) ) heapManager->stats.free_null_calls += 1;
 			else AtomicFetchAdd( heapMaster.stats.free_null_calls, 1 );
@@ -1558,6 +1555,7 @@ void * resize( void * oaddr, size_t nalign, size_t size ) {
 	size_t oalign;
 
 	if ( UNLIKELY( isFakeHeader ) ) {
+		checkAlign( nalign );							// check alignment
 		oalign = ClearAlignmentBit( header );			// old alignment
 		if ( UNLIKELY( (uintptr_t)oaddr % nalign == 0	// lucky match ?
 			 && ( oalign <= nalign						// going down
@@ -1591,10 +1589,6 @@ void * resize( void * oaddr, size_t nalign, size_t size ) {
 
 
 void * realloc( void * oaddr, size_t nalign, size_t size ) {
-	#ifdef __DEBUG__
-	checkAlign( nalign );								// check alignment
-	#endif // __DEBUG__
-
   if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) );
 	} // if
@@ -1606,6 +1600,7 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) {
 	bool isFakeHeader = AlignmentBit( header );			// old fake header ?
 	size_t oalign;
 	if ( UNLIKELY( isFakeHeader ) ) {
+		checkAlign( nalign );							// check alignment
 		oalign = ClearAlignmentBit( header );			// old alignment
 		if ( UNLIKELY( (uintptr_t)oaddr % nalign == 0	// lucky match ?
 			 && ( oalign <= nalign						// going down
