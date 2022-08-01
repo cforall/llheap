@@ -482,6 +482,26 @@ Heap * HeapMaster::getHeap() {
 		#ifdef __STATISTICS__
 		heapMaster.new_heap += 1;
 		#endif // __STATISTICS__
+
+		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
+			heap->freeLists[j] = (Heap::FreeHeader){
+				#ifdef RETURNSPIN
+				.returnLock = 0,
+				#endif // RETURNSPIN
+				.returnList = nullptr,
+				.freeList = nullptr,
+				.homeManager = heap,
+				.blockSize = heapMaster.bucketSizes[j],
+			};
+		} // for
+
+		heap->heapBuffer = nullptr;
+		heap->heapReserve = 0;
+		heap->nextFreeHeapManager = nullptr;
+		#ifdef __DEBUG__
+		heap->allocUnfreed = 0;
+		#endif // __DEBUG__
+		heapManagerBootFlag = true;
 	} // if
 	return heap;
 } // HeapMaster::getHeap
@@ -494,7 +514,7 @@ static void heapManagerCtor() {
 
 	if ( UNLIKELY( ! HeapMaster::heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
 
-	spin_acquire( &heapMaster.mgrLock );			// protect heapMaster counters
+	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
   if ( heapManagerBootFlag ) {							// singleton
 		spin_release( &heapMaster.mgrLock );
@@ -505,36 +525,14 @@ static void heapManagerCtor() {
 
 	// get storage for heap manager
 
-	Heap * heap = HeapMaster::getHeap();
-	heapManager = heap;
+	heapManager = HeapMaster::getHeap();
 
 	#ifdef __STATISTICS__
 	HeapStatisticsCtor( heapManager->stats );			// heap local
 	heapMaster.threads_started += 1;
 	#endif // __STATISTICS__
 
-	#ifdef __DEBUG__
-	debug( "HCtor %p %jd %jd\n", heap, heap->allocUnfreed, heapMaster.allocUnfreed );
-	#endif // __DEBUG__
-
 	spin_release( &heapMaster.mgrLock );
-
-	for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
-		heap->freeLists[j] = (Heap::FreeHeader){
-			#ifdef RETURNSPIN
-			.returnLock = 0,
-			#endif // RETURNSPIN
-			.returnList = nullptr,
-			.freeList = nullptr,
-			.homeManager = heap,
-			.blockSize = heapMaster.bucketSizes[j],
-		};
-	} // for
-
-	heap->heapBuffer = nullptr;
-	heap->heapReserve = 0;
-	heap->nextFreeHeapManager = nullptr;
-	heapManagerBootFlag = true;
 } // heapManagerCtor
 
 
@@ -574,20 +572,25 @@ static void heapManagerDtor() {
 //####################### Memory Allocation Routines Helpers ####################
 
 
-#ifdef __DEBUG__
 NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor )
+	#ifdef __DEBUG__
 	assert( heapManager );
 	debug( "startup %jd set to zero\n", heapManager->allocUnfreed );
-	#ifdef __STATISTICS__
-	HeapStatisticsCtor( heapManager->stats );			// clear statistic counters
-	#endif // __STATISTICS__
 	// SKULLDUGGERY: atexit for the first thread's thread-local storage is triggered before this call. Any other
 	// allocations before this call are ignored as frees do not seem to occur. However, the free for this thread's
 	// atexit is called, so its allocation must be preserved. However, hard-coding the 32 is fragile.
 	heapManager->allocUnfreed = 32;
+	#endif // __DEBUG__
+
+	#ifdef __STATISTICS__
+	HeapStatisticsCtor( heapManager->stats );			// clear statistic counters
+	#endif // __STATISTICS__
 } // startup
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
+	#ifdef __U_DEBUG__
+	// allocUnfreed is set to 0 when a heap is created and it accumulates any unfreed storage during its multiple thread
+	// usages.  At the end, add up each heap allocUnfreed value across all heaps to get the total unfreed storage.
 	long long int allocUnfreed = heapMaster.allocUnfreed;
 	debug( "shutdown1 %jd\n", heapMaster.allocUnfreed );
 	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
@@ -595,7 +598,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 		allocUnfreed += heap->allocUnfreed;
 	} // for
 
-	allocUnfreed -= malloc_unfreed();
+	allocUnfreed -= malloc_unfreed();					// subtract any user specified unfreed storage
 	debug( "shutdown3 %lld %zd\n", allocUnfreed, malloc_unfreed() );
 	if ( allocUnfreed > 0 ) {
 		// DO NOT USE STREAMS AS THEY MAY BE UNAVAILABLE AT THIS POINT.
@@ -605,8 +608,8 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 							(long int)getpid(), allocUnfreed, allocUnfreed ); // always print the UNIX pid
 		if ( write( STDERR_FILENO, helpText, len ) == -1 ) abort( "**** Error **** write error in shutdown" );
 	} // if
+	#endif // __DEBUG__
 } // shutdown
-#endif // __DEBUG__
 
 
 #ifdef __STATISTICS__
@@ -621,11 +624,11 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  resize    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
 	"  realloc   >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
 	"  free      !null calls %'u; null calls %'u; storage %'llu / %'llu bytes\n" \
-	"  return    pulls %'u; pushes %'u; storage %'llu / %'llu bytes\n"	\
-	"  sbrk      calls %'u; storage %'llu bytes\n"						\
-	"  mmap      calls %'u; storage %'llu / %'llu bytes\n"				\
-	"  munmap    calls %'u; storage %'llu / %'llu bytes\n"				\
-	"  threads   started %'lu; exited %'lu\n"							\
+	"  return    pulls %'u; pushes %'u; storage %'llu / %'llu bytes\n" \
+	"  sbrk      calls %'u; storage %'llu bytes\n" \
+	"  mmap      calls %'u; storage %'llu / %'llu bytes\n" \
+	"  munmap    calls %'u; storage %'llu / %'llu bytes\n" \
+	"  threads   started %'lu; exited %'lu\n" \
 	"  heaps     new %'lu; reused %'lu\n"
 
 // Use "write" because streams may be shutdown when calls are made.
@@ -923,6 +926,9 @@ static void * manager_extend( size_t size ) {
 	} /* if */
 
 
+#define SCRUB_SIZE 1024lu
+#define SCRUB '\xff'
+
 static inline void * doMalloc( size_t size STAT_PARM ) {
 	PROLOG( STAT_NAME );
 
@@ -932,7 +938,7 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 
 	// Look up size in the size list.  Make sure the user request includes space for the header that must be allocated
 	// along with the block and is a multiple of the alignment size.
-	size_t tsize = size + sizeof(Heap::Storage);
+	size_t tsize = size + sizeof(Heap::Storage);		// total size needed
 
 	#ifdef __STATISTICS__
 	heap->stats.counters[STAT_NAME].calls += 1;
@@ -970,10 +976,10 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 			if ( LIKELY( block == nullptr ) ) {			// return list also empty?
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 
-				#ifdef __U_DEBUG__
-				// Scrubbed new memory so subsequent uninitialized usages might fail.
-				memset( block->data, '\xde', freeHead->blockSize - sizeof(Storage) );
-				#endif // __U_DEBUG__
+				#ifdef __DEBUG__
+				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first 1024 bytes.
+				memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+				#endif // __DEBUG__
 			} else {									// merge returnList into freeHead
 				#ifdef __STATISTICS__
 				heap->stats.return_pulls += 1;
@@ -1004,10 +1010,11 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 		} // if
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
-		#ifdef __U_DEBUG__
-		// Set new memory to garbage so subsequent uninitialized usages might fail.
-		memset( block->data, '\xde', tsize - sizeof(Storage) );
-		#endif // __U_DEBUG__
+		#ifdef __DEBUG__
+		// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first 1024 bytes.  The rest of
+		// the storage set to 0 by mmap.
+		memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+		#endif // __DEBUG__
 	} // if
 
 	block->header.kind.real.size = size;				// store allocation size
@@ -1031,17 +1038,17 @@ static inline void doFree( void * addr ) {
 
 	Heap::Storage::Header * header;
 	Heap::FreeHeader * freeHead;
-	size_t size, alignment;								// not used (see realloc)
+	size_t size, alignment;
 
 	bool mapped = headers( "free", addr, header, freeHead, size, alignment );
 	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
-	size_t tsize = header->kind.real.size;				// optimization
+	size_t rsize = header->kind.real.size;				// optimization
 	#endif // __STATISTICS__ || __DEBUG__
 
 	if ( UNLIKELY( mapped ) ) {							// mmapped ?
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
-		heap->stats.munmap_storage_request += tsize;
+		heap->stats.munmap_storage_request += rsize;
 		heap->stats.munmap_storage_alloc += size;
 		#endif // __STATISTICS__
 
@@ -1051,10 +1058,18 @@ static inline void doFree( void * addr ) {
 				   addr );
 		} // if
 	} else {
-		#ifdef __U_DEBUG__
-		// Set free memory to garbage so subsequent usages might fail.
-		memset( ((Storage *)header)->data, '\xde', freeHead->blockSize - sizeof(Storage) );
-		#endif // __U_DEBUG__
+		#ifdef __DEBUG__
+		// Scrub old memory so subsequent usages might fail. Only scrub the first/last 1024 bytes.
+		char * data = ((Heap::Storage *)header)->data;	// data address
+		size_t dsize = size - sizeof(Heap::Storage);	// data size
+		if ( dsize <= SCRUB_SIZE ) {
+			memset( data, SCRUB, dsize );				// scrub all
+		} else {
+			memset( data, SCRUB, SCRUB_SIZE );			// scrub front
+			size_t ssize = std::min( SCRUB_SIZE, dsize - SCRUB_SIZE ); // scrub size
+			memset( data + dsize - ssize, SCRUB, ssize ); // scrub back
+		} // if
+		#endif // __DEBUG__
 
 		if ( LIKELY( heap == freeHead->homeManager ) ) { // belongs to this thread
 			header->kind.real.next = freeHead->freeList; // push on stack
@@ -1085,15 +1100,15 @@ static inline void doFree( void * addr ) {
 
 			if ( UNLIKELY( heap == nullptr ) ) {
 				#ifdef __STATISTICS__
-				AtomicFetchAdd( heapMaster.stats.free_storage_request, tsize );
+				AtomicFetchAdd( heapMaster.stats.free_storage_request, rsize );
 				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, size );
 				// return push counters are not incremented because this is a self-return push, and there is no
 				// corresponding pull counter that needs to match.
 				#endif // __STATISTICS__
 
 				#ifdef __DEBUG__
-				AtomicFetchAdd( heapMaster.allocUnfreed, -tsize );
-				debug( "\tdoFree2 %zd %zd %jd\n", size, tsize, heapMaster.allocUnfreed );
+				AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
+				debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
 				#endif // __DEBUG__
 				return;
 			} // if
@@ -1104,20 +1119,20 @@ static inline void doFree( void * addr ) {
 
 			#ifdef __STATISTICS__
 			heap->stats.return_pushes += 1;
-			heap->stats.return_storage_request += tsize;
+			heap->stats.return_storage_request += rsize;
 			heap->stats.return_storage_alloc += size;
 			#endif // __STATISTICS__
 		} // if
 	} // if
 
 	#ifdef __STATISTICS__
-	heap->stats.free_storage_request += tsize;
+	heap->stats.free_storage_request += rsize;
 	heap->stats.free_storage_alloc += size;
 	#endif // __STATISTICS__
 
 	#ifdef __DEBUG__
-	heap->allocUnfreed -= tsize;
-	debug( "\tdoFree %p %zd %zd %jd\n", heap, size, tsize, heap->allocUnfreed );
+	heap->allocUnfreed -= rsize;
+	debug( "\tdoFree %p %zd %zd %jd\n", heap, size, rsize, heap->allocUnfreed );
 	#endif // __DEBUG__
 } // doFree
 
@@ -1230,6 +1245,9 @@ extern "C" {
 		// same size, DO NOT preserve STICKY PROPERTIES.
 		if ( oalign == __ALIGN__ && size <= odsize && odsize <= size * 2 ) { // allow 50% wasted storage for smaller size
 			ClearZeroFillBit( header );					// no alignment and turn off 0 fill
+			#ifdef __DEBUG__
+			heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
+			#endif // __DEBUG__
 			header->kind.real.size = size;				// reset allocation size
 			#ifdef __STATISTICS__
 			heapManager->stats.resize_calls += 1;
@@ -1262,7 +1280,10 @@ extern "C" {
 		size_t osize = header->kind.real.size;			// old allocation size
 		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
 	  if ( UNLIKELY( size <= odsize ) && odsize <= size * 2 ) { // allow up to 50% wasted storage
-	  		header->kind.real.size = size;				// reset allocation size
+			#ifdef __DEBUG__
+			heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
+			#endif // __DEBUG__
+			header->kind.real.size = size;				// reset allocation size
 	  		if ( UNLIKELY( ozfill ) && size > osize ) {	// previous request zero fill and larger ?
 	  			memset( (char *)oaddr + osize, '\0', size - osize ); // initialize added storage
 	  		} // if
@@ -1570,6 +1591,9 @@ void * resize( void * oaddr, size_t nalign, size_t size ) {
 			if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
 				HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalign ); // update alignment (could be the same)
 				ClearZeroFillBit( header );				// turn off 0 fill
+				#ifdef __DEBUG__
+				heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
+				#endif // __DEBUG__
 				header->kind.real.size = size;			// reset allocation size
 				#ifdef __STATISTICS__
 				heapManager->stats.resize_calls += 1;
