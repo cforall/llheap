@@ -260,7 +260,7 @@ int main( int argc, char *argv[] ) {
 	} // for
 	
 	worker( nullptr );									// initialize thread runs one test
-	
+
 	for ( int tid = 1; tid < Threads; tid += 1 ) {
 		if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
 	} // for
@@ -273,7 +273,7 @@ int main( int argc, char *argv[] ) {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
+// g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
 
 // Local Variables: //
 // compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.o -lpthread" //
