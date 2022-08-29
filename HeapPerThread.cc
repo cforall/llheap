@@ -373,15 +373,13 @@ static_assert( Heap::NoBucketSizes == sizeof(HeapMaster::bucketSizes) / sizeof(H
 
 
 // Thread-local storage is allocated lazily when the storage is accessed.
-static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
-static thread_local ThreadManager threadManager CALIGN TLSMODEL;
-// Do not put heapManager in ThreadManager because thread-local destructor results in extra access code.
-static thread_local Heap * heapManager CALIGN TLSMODEL;
+static __thread size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
+static __thread Heap * heapManager CALIGN TLSMODEL;
 #ifndef OWNERSHIP
-static thread_local Heap * shadow_heap CALIGN TLSMODEL;
+static __thread Heap * shadow_heap CALIGN TLSMODEL;
 #endif // ! OWNERSHIP
-static thread_local bool heapManagerBootFlag CALIGN TLSMODEL = false;
-static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
+static __thread bool heapManagerBootFlag CALIGN TLSMODEL = false;
+static __thread size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
 // declare helper functions for HeapMaster
@@ -474,9 +472,9 @@ Heap * HeapMaster::getHeap() {
 		heap = heapMaster.heapManagersStorage;
 		heapMaster.heapManagersStorage = heapMaster.heapManagersStorage + 1; // bump next heap
 
-		#ifdef __STATISTICS__
+		#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 		heap->nextHeapManager = heapMaster.heapManagersList;
-		#endif // __STATISTICS__
+		#endif // __STATISTICS__ || __DEBUG__
 		heapMaster.heapManagersList = heap;
 
 		#ifdef __STATISTICS__
@@ -508,18 +506,9 @@ Heap * HeapMaster::getHeap() {
 
 
 static void heapManagerCtor() {
-	// Trigger thread_local storage implicit allocation (causes recursive call) and identify program thread because
-	// heapMasterBootFlag is false.
-	threadManager.pgm_thread = HeapMaster::heapMasterBootFlag;
-
 	if ( UNLIKELY( ! HeapMaster::heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
-
-  if ( heapManagerBootFlag ) {							// singleton
-		spin_release( &heapMaster.mgrLock );
-		return;											// always return on recursive initiation
-	} // if
 
 	assert( ! heapManagerBootFlag );
 
@@ -576,10 +565,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 	#ifdef __DEBUG__
 	assert( heapManager );
 	debug( "startup %jd set to zero\n", heapManager->allocUnfreed );
-	// SKULLDUGGERY: atexit for the first thread's thread-local storage is triggered before this call. Any other
-	// allocations before this call are ignored as frees do not seem to occur. However, the free for this thread's
-	// atexit is called, so its allocation must be preserved. However, hard-coding the 32 is fragile.
-	heapManager->allocUnfreed = 32;
+	heapManager->allocUnfreed = 0;
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
@@ -1059,15 +1045,14 @@ static inline void doFree( void * addr ) {
 		} // if
 	} else {
 		#ifdef __DEBUG__
-		// Scrub old memory so subsequent usages might fail. Only scrub the first/last 1024 bytes.
+		// Scrub old memory so subsequent usages might fail. Only scrub the first/last SCRUB_SIZE bytes.
 		char * data = ((Heap::Storage *)header)->data;	// data address
 		size_t dsize = size - sizeof(Heap::Storage);	// data size
-		if ( dsize <= SCRUB_SIZE ) {
+		if ( dsize <= SCRUB_SIZE * 2 ) {
 			memset( data, SCRUB, dsize );				// scrub all
 		} else {
 			memset( data, SCRUB, SCRUB_SIZE );			// scrub front
-			size_t ssize = std::min( SCRUB_SIZE, dsize - SCRUB_SIZE ); // scrub size
-			memset( data + dsize - ssize, SCRUB, ssize ); // scrub back
+			memset( data + dsize - SCRUB_SIZE, SCRUB, SCRUB_SIZE ); // scrub back
 		} // if
 		#endif // __DEBUG__
 
