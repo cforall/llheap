@@ -17,11 +17,11 @@ By changing the Makefile (toggle `-D__STATISTICS__` and `-D__DEBUG__`) , it is p
 
 # Memory Allocator Design
 
-HeapPerThread is designed as a fast concurrent allocator with very low latency at the cost of a slightly larger memory footprints. The implementation fulfills GNUC library requirements while adding significant extensions and safety.
+llheap is designed as a fast concurrent allocator with very low latency at the cost of a slightly larger memory footprints. The implementation fulfills GNUC library requirements while adding significant extensions and safety.
 
 ## Objective
 
-The objectives of the HeapPerThread design are:
+The objectives of the llheap design are:
 
 * thread-safe,
 * fast concurrent allocation/free with or without statistics/debugging,
@@ -36,13 +36,13 @@ The objectives of the HeapPerThread design are:
 * `calloc` sets the sticky zero-fill property
 * `memalign` sets the alignment sticky property, remembering the specified alignment size
 * `realloc` preserved all sticky properties when moving and increasing space
-* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. HeapPerThread must be compiled with statistic flag.
+* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic flag.
 
 **Return:** side-effect of writing out statistics.
 
 ## Added Features
 
-The following new allocation operations are available with HeapPerThread:
+The following new allocation operations are available with llheap:
 
 ### `void * aalloc( size_t dim, size_t elemSize )`
 extends calloc for allocating a dynamic array of objects but *without* zero-filling the memory. aalloc is significantly faster than calloc.

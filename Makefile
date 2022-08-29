@@ -1,10 +1,9 @@
 CXX := g++-10
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__DEBUG_PRT__
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
-SRCDIR := ${HOME}/software/llheap
 
 MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name
-OBJECTS = libhThread.o libhThread-stats.o libhThread.so libhThread-stats.so
+OBJECTS = libllheap.o libllheap-stats.o libllheap.so libllheap-stats.so
 DEPENDS = ${OBJECTS:.o=.d}			# substitute ".o" with ".d"
 
 .PHONY : all clean				# not file names
@@ -15,16 +14,16 @@ all : ${OBJECTS}
 
 ${OBJECTS} : ${MAKEFILE_NAME}			# OPTIONAL : changes to this file => recompile
 
-libhThread.o : HeapPerThread.cc HeapPerThread.h
+libllheap.o : llheap.cc llheap.h
 	${CXX} ${CXXFLAGS} -c -o $@ $< -DNDEBUG
 
-libhThread-stats.o : HeapPerThread.cc HeapPerThread.h
+libllheap-stats.o : llheap.cc llheap.h
 	${CXX} ${CXXFLAGS} -c -o $@ $< -D__DEBUG__ -D__STATISTICS__
 
-libhThread.so : HeapPerThread.cc HeapPerThread.h
+libllheap.so : llheap.cc llheap.h
 	${CXX} ${CXXFLAGS} -fPIC -shared -o $@ $< -DNDEBUG -DTLS
 
-libhThread-stats.so : HeapPerThread.cc HeapPerThread.h
+libllheap-stats.so : llheap.cc llheap.h
 	${CXX} ${CXXFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -D__STATISTICS__ -DTLS
 
 clean :
@@ -40,8 +39,8 @@ test : ${OBJECTS}
 	for lk in "" "s" ; do
 		for sd in "" "-stats" ; do
 			echo ".$${lk}o linkage, $${sd:-no stats}"
-			echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=${SRCDIR} -L${SRCDIR}}
-			${CXX} ${CXXFLAGS} -D`hostname` test.cc libhThread$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=${SRCDIR} -L${SRCDIR}}
+			echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
+			${CXX} ${CXXFLAGS} -D`hostname` test.cc libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
 			${TIME} ./a.out
 			echo "\n#######################################\n"
 		done

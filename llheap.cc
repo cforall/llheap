@@ -1,4 +1,4 @@
-#include "HeapPerThread.h"
+#include "llheap.h"
 
 #include <algorithm>									// lower_bound, min
 #include <cstring>										// strlen, memset, memcpy
@@ -963,7 +963,7 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 
 				#ifdef __DEBUG__
-				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first 1024 bytes.
+				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
 				memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
 			} else {									// merge returnList into freeHead
@@ -997,8 +997,8 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
 		#ifdef __DEBUG__
-		// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first 1024 bytes.  The rest of
-		// the storage set to 0 by mmap.
+		// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes. The
+		// rest of the storage set to 0 by mmap.
 		memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 		#endif // __DEBUG__
 	} // if
@@ -1653,11 +1653,11 @@ void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) 
 } // reallocarray
 
 
-// zip -r HeapPerThread.zip heap/README.md heap/HeapPerThread.h heap/HeapPerThread.cc heap/Makefile heap/affinity.h heap/test.cc heap/away.cc
+// zip -r llheap.zip heap/README.md heap/llheap.h heap/llheap.cc heap/Makefile heap/affinity.h heap/test.cc heap/away.cc
 
-// g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS HeapPerThread.cc -fPIC -shared -o HeapPerThread.so
+// g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS llheap.cc -fPIC -shared -o llheap.so
 
 // Local Variables: //
 // tab-width: 4 //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ HeapPerThread.cc -c" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
 // End: //
