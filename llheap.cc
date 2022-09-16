@@ -374,6 +374,7 @@ static_assert( Heap::NoBucketSizes == sizeof(HeapMaster::bucketSizes) / sizeof(H
 
 // Thread-local storage is allocated lazily when the storage is accessed.
 static __thread size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
+static thread_local ThreadManager threadManager CALIGN TLSMODEL;
 static __thread Heap * heapManager CALIGN TLSMODEL;
 #ifndef OWNERSHIP
 static __thread Heap * shadow_heap CALIGN TLSMODEL;
@@ -506,9 +507,18 @@ Heap * HeapMaster::getHeap() {
 
 
 static void heapManagerCtor() {
+	// Trigger thread_local storage implicit allocation (causes recursive call) and identify program thread because
+	// heapMasterBootFlag is false.
+	threadManager.pgm_thread = HeapMaster::heapMasterBootFlag;
+
 	if ( UNLIKELY( ! HeapMaster::heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
+
+  if ( heapManagerBootFlag ) {							// singleton
+		spin_release( &heapMaster.mgrLock );
+		return;											// always return on recursive initiation
+	} // if
 
 	assert( ! heapManagerBootFlag );
 
