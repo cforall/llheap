@@ -276,5 +276,5 @@ int main( int argc, char *argv[] ) {
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.o -lpthread" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libllheap.o -lpthread" //
 // End: //

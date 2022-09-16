@@ -109,8 +109,8 @@ int main() {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-10 -Wall -Wextra -g -O3 -D`hostname` away.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
+// g++-10 -Wall -Wextra -g -O3 -D`hostname` away.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 away.cc libhThread.o -lpthread -D`hostname`" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 away.cc libllheap.o -lpthread -D`hostname`" //
 // End: //
