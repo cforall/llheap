@@ -1,14 +1,15 @@
 #include "llheap.h"
 
-#include <algorithm>									// lower_bound, min
+#include <new>											// set_new_handler
+#include <cstdlib>										// abort
 #include <cstring>										// strlen, memset, memcpy
 #include <climits>										// ULONG_MAX
 #include <cstdarg>										// va_start, va_end
 #include <cerrno>										// errno, ENOMEM, EINVAL
 #include <cassert>
+#include <cstdint>										// uintptr_t, uint64_t, uint32_t
 #include <unistd.h>										// STDERR_FILENO, sbrk, sysconf, write
 #include <sys/mman.h>									// mmap, munmap
-#include <cstdint>										// uintptr_t, uint64_t, uint32_t
 #include <sys/sysinfo.h>								// get_nprocs
 
 #define FASTLOOKUP										// use O(1) table lookup from allocation size to bucket size
@@ -27,7 +28,7 @@
 	statement ;	\
 	_Pragma ( "GCC diagnostic pop" )
 
-#define CACHE_ALIGN 128									// Intel recommendation
+#define CACHE_ALIGN 64
 #define CALIGN __attribute__(( aligned(CACHE_ALIGN) ))
 
 #ifdef TLS
@@ -97,24 +98,24 @@ static void debug( const char fmt[] __attribute__(( unused )), ... ) {
 } // debug
 
 
-static inline bool Pow2( unsigned long int value ) {
+static inline __attribute__((always_inline)) bool Pow2( unsigned long int value ) {
 	// clears all bits below value, rounding value down to the next lower multiple of value
 	return (value & (value - 1)) == 0;
 } // Pow2
 
-static inline unsigned long int Floor( unsigned long int value, unsigned long int align ) {
+static inline __attribute__((always_inline)) unsigned long int Floor( unsigned long int value, unsigned long int align ) {
 	assert( Pow2( align ) );
 	// clears all bits above or equal to align, getting (value % align), the phase of value with regards to align
 	return value & -align;
 } // Floor
 
-static inline unsigned long int Ceiling( unsigned long int value, unsigned long int align ) {
+static inline __attribute__((always_inline)) unsigned long int Ceiling( unsigned long int value, unsigned long int align ) {
 	assert( Pow2( align ) );
 	// "negate, round down, negate" is the same as round up
 	return -Floor( -value, align );
 } // Ceiling
 
-template< typename T > static inline T AtomicFetchAdd( volatile T & counter, int increment ) {
+template< typename T > static inline __attribute__((always_inline)) T AtomicFetchAdd( volatile T & counter, int increment ) {
 	return __atomic_fetch_add( &counter, increment, __ATOMIC_SEQ_CST );
 } // AtomicFetchAdd
 
@@ -133,7 +134,7 @@ template< typename T > static inline T AtomicFetchAdd( volatile T & counter, int
 
 typedef volatile uintptr_t SpinLock_t CALIGN;			// aligned addressable word-size
 
-static void spin_acquire( volatile SpinLock_t * lock ) {
+static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLock_t * lock ) {
 	enum { SPIN_START = 4, SPIN_END = 64 * 1024, };
 	unsigned int spin = SPIN_START;
 
@@ -146,7 +147,7 @@ static void spin_acquire( volatile SpinLock_t * lock ) {
 	} // for
 } // spin_lock
 
-static void spin_release( volatile SpinLock_t * lock ) {
+static inline __attribute__((always_inline)) void spin_release( volatile SpinLock_t * lock ) {
 	__atomic_clear( lock, __ATOMIC_SEQ_CST );			// Fence
 } // spin_unlock
 
@@ -252,14 +253,12 @@ struct Heap {
 
 	struct __attribute__(( aligned (8) )) FreeHeader {
 		#ifdef RETURNSPIN
-		SpinLock_t returnLock;							// LOCK(S) MUST BE FIRST FIELD(S) FOR ALIGNMENT
+		SpinLock_t returnLock;
 		#endif // RETURNSPIN
 		Storage * returnList;							// other thread return list
 		Storage * freeList;								// thread free list
 		Heap * homeManager;								// heap owner (free storage to bucket, from bucket to heap)
 		size_t blockSize;								// size of allocations on this list
-
-		bool operator<( const size_t bsize ) const { return blockSize < bsize; }
 	}; // FreeHeader
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
@@ -299,7 +298,6 @@ namespace {												// hide static members
 		SpinLock_t extLock;								// protects allocation-buffer extension
 		SpinLock_t mgrLock;								// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
 
-		static const unsigned int bucketSizes[];		// initialized statically, outside constructor
 		void * heapBegin;								// start of heap
 		void * heapEnd;									// logical end of heap
 		size_t heapRemaining;							// amount of storage not allocated in the current chunk
@@ -314,9 +312,6 @@ namespace {												// hide static members
 		// Heap superblocks are not linked; heaps in superblocks are linked via intrusive links.
 		Heap * heapManagersStorage;						// next heap to use in heap superblock
 		Heap * heapManagersStorageEnd;					// logical heap outside of superblock's end
-
-		// Prevents two threads from constructing heapMaster.
-		static volatile bool heapMasterBootFlag;		// trigger for first heap
 
 		#ifdef __DEBUG__
 		int64_t allocUnfreed;							// running total of allocations minus frees; can be negative
@@ -342,14 +337,14 @@ enum { LookupSizes = 65'536 + sizeof(Heap::Storage) };	// number of fast lookup 
 static unsigned char lookup[LookupSizes];				// O(1) lookup for small sizes
 #endif // FASTLOOKUP
 
-volatile bool HeapMaster::heapMasterBootFlag = false;
+static volatile bool heapMasterBootFlag = false;		// trigger for first heap
 static HeapMaster heapMaster;							// program global
 
 
 // Size of array must harmonize with NoBucketSizes and individual bucket sizes must be multiple of 16.
 // Smaller multiples of 16 and powers of 2 are common allocation sizes, so make them generate the minimum required bucket size.
 // malloc(0) returns nullptr, so no bucket is necessary for 0 bytes returning an address that can be freed.
-const unsigned int HeapMaster::bucketSizes[] = {		// different bucket sizes
+static const unsigned int bucketSizes[] = {				// different bucket sizes
 	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
 	96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 3
 	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
@@ -369,7 +364,26 @@ const unsigned int HeapMaster::bucketSizes[] = {		// different bucket sizes
 	2'621'440, 3'145'728, 3'670'016, 4'194'304 + sizeof(Heap::Storage), // 4
 };
 
-static_assert( Heap::NoBucketSizes == sizeof(HeapMaster::bucketSizes) / sizeof(HeapMaster::bucketSizes[0]), "size of bucket array wrong" );
+static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array wrong" );
+
+
+// std::min and std::lower_bound do not always inline, so substitute hand-coded versions.
+
+#define Min( x, y ) (x < y ? x : y)
+
+inline __attribute__((always_inline))
+static size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim ) {
+	size_t l = 0, m, h = dim;
+	while ( l < h ) {
+		m = (l + h) / 2;
+		if ( (unsigned int &)(vals[m]) < key ) {		// cast away const
+			l = m + 1;
+		} else {
+			h = m;
+		} // if
+	} // while
+	return l;
+} // Bsearchl
 
 
 // Thread-local storage is allocated lazily when the storage is accessed.
@@ -389,7 +403,9 @@ void noMemory();										// forward, called by "builtin_new" when malloc return
 void HeapMaster::heapMasterCtor() {
 	// Singleton pattern to initialize heap master
 
-	assert( heapMaster.bucketSizes[0] == (16 + sizeof(Heap::Storage)) );
+	assert( bucketSizes[0] == (16 + sizeof(Heap::Storage)) );
+
+	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 
 	heapMaster.extLock = 0;
 	heapMaster.mgrLock = 0;
@@ -397,16 +413,15 @@ void HeapMaster::heapMasterCtor() {
 	char * end = (char *)sbrk( 0 );
 	heapMaster.heapBegin = heapMaster.heapEnd = sbrk( (char *)Ceiling( (long unsigned int)end, __ALIGN__ ) - end ); // move start of heap to multiple of alignment
 	heapMaster.heapRemaining = 0;
-	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 	heapMaster.heapExpand = malloc_expansion();
 	heapMaster.mmapStart = malloc_mmap_start();
 
 	// find the closest bucket size less than or equal to the mmapStart size
-	heapMaster.maxBucketsUsed = std::lower_bound( heapMaster.bucketSizes, heapMaster.bucketSizes + (Heap::NoBucketSizes - 1), heapMaster.mmapStart ) - heapMaster.bucketSizes; // binary search
+	heapMaster.maxBucketsUsed = Bsearchl( heapMaster.mmapStart, bucketSizes, Heap::NoBucketSizes ); // binary search
 
-	assert( (heapMaster.mmapStart >= heapMaster.pageSize) && (heapMaster.bucketSizes[Heap::NoBucketSizes - 1] >= heapMaster.mmapStart) );
+	assert( (heapMaster.mmapStart >= heapMaster.pageSize) && (bucketSizes[Heap::NoBucketSizes - 1] >= heapMaster.mmapStart) );
 	assert( heapMaster.maxBucketsUsed < Heap::NoBucketSizes ); // subscript failure ?
-	assert( heapMaster.mmapStart <= heapMaster.bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
+	assert( heapMaster.mmapStart <= bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
 
 	heapMaster.heapManagersList = nullptr;
 	heapMaster.freeHeapManagersList = nullptr;
@@ -429,16 +444,16 @@ void HeapMaster::heapMasterCtor() {
 
 	#ifdef FASTLOOKUP
 	for ( unsigned int i = 0, idx = 0; i < LookupSizes; i += 1 ) {
-		if ( i > heapMaster.bucketSizes[idx] ) idx += 1;
+		if ( i > bucketSizes[idx] ) idx += 1;
 		lookup[i] = idx;
-		assert( i <= heapMaster.bucketSizes[idx] );
-		assert( (i <= 32 && idx == 0) || (i > heapMaster.bucketSizes[idx - 1]) );
+		assert( i <= bucketSizes[idx] );
+		assert( (i <= 32 && idx == 0) || (i > bucketSizes[idx - 1]) );
 	} // for
 	#endif // FASTLOOKUP
 
 	std::set_new_handler( noMemory );					// do not throw exception as the default
 
-	HeapMaster::heapMasterBootFlag = true;
+	heapMasterBootFlag = true;
 } // HeapMaster::heapMasterCtor
 
 
@@ -461,11 +476,12 @@ Heap * HeapMaster::getHeap() {
 			// Each block of heaps is a multiple of the number of cores on the computer.
 			int HeapDim = get_nprocs();					// get_nprocs_conf does not work
 			size_t size = HeapDim * sizeof( Heap );
+
 			heapMaster.heapManagersStorage = (Heap *)mmap( 0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 			if ( UNLIKELY( heapMaster.heapManagersStorage == MAP_FAILED ) ) { // failed ?
 				if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, size ); // no memory
 				// Do not call strerror( errno ) as it may call malloc.
-				abort( "**** Error **** mmap failure: size:%zu error %d.", size, errno );
+				abort( "**** Error **** attempt to allocate block of heaps of size %zu bytes and mmap failed with errno %d.", size, errno );
 			} // if
 			heapMaster.heapManagersStorageEnd = &heapMaster.heapManagersStorage[HeapDim]; // outside array
 		} // if
@@ -490,7 +506,7 @@ Heap * HeapMaster::getHeap() {
 				.returnList = nullptr,
 				.freeList = nullptr,
 				.homeManager = heap,
-				.blockSize = heapMaster.bucketSizes[j],
+				.blockSize = bucketSizes[j],
 			};
 		} // for
 
@@ -509,9 +525,9 @@ Heap * HeapMaster::getHeap() {
 static void heapManagerCtor() {
 	// Trigger thread_local storage implicit allocation (causes recursive call) and identify program thread because
 	// heapMasterBootFlag is false.
-	threadManager.pgm_thread = HeapMaster::heapMasterBootFlag;
+	threadManager.pgm_thread = heapMasterBootFlag;
 
-	if ( UNLIKELY( ! HeapMaster::heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
+	if ( UNLIKELY( ! heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
@@ -572,8 +588,8 @@ static void heapManagerDtor() {
 
 
 NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor )
-	#ifdef __DEBUG__
 	assert( heapManager );
+	#ifdef __DEBUG__
 	debug( "startup %jd set to zero\n", heapManager->allocUnfreed );
 	heapManager->allocUnfreed = 0;
 	#endif // __DEBUG__
@@ -716,13 +732,14 @@ inline void noMemory() {
 
 
 static inline bool setMmapStart( size_t value ) {		// true => mmapped, false => sbrk
-  if ( value < heapMaster.pageSize || heapMaster.bucketSizes[Heap::NoBucketSizes - 1] < value ) return false;
+  if ( value < heapMaster.pageSize || bucketSizes[Heap::NoBucketSizes - 1] < value ) return false;
 	heapMaster.mmapStart = value;						// set global
 
 	// find the closest bucket size less than or equal to the mmapStart size
-	heapMaster.maxBucketsUsed = std::lower_bound( heapMaster.bucketSizes, heapMaster.bucketSizes + (Heap::NoBucketSizes - 1), heapMaster.mmapStart ) - heapMaster.bucketSizes; // binary search
+	heapMaster.maxBucketsUsed = Bsearchl( heapMaster.mmapStart, bucketSizes, Heap::NoBucketSizes ); // binary search
+
 	assert( heapMaster.maxBucketsUsed < Heap::NoBucketSizes ); // subscript failure ?
-	assert( heapMaster.mmapStart <= heapMaster.bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
+	assert( heapMaster.mmapStart <= bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
 	return true;
 } // setMmapStart
 
@@ -745,14 +762,16 @@ static inline bool setMmapStart( size_t value ) {		// true => mmapped, false => 
 #define DataStorage( bsize, addr, header ) (bsize - ( (char *)addr - (char *)header ))
 
 
-static inline void checkAlign( size_t alignment ) {
+inline __attribute__((always_inline))
+static void checkAlign( size_t alignment ) {
 	if ( UNLIKELY( alignment < __ALIGN__ || ! Pow2( alignment ) ) ) {
 		abort( "**** Error **** alignment %zu for memory allocation is less than %d and/or not a power of 2.", alignment, __ALIGN__ );
 	} // if
 } // checkAlign
 
 
-static inline void checkHeader( bool check, const char name[], void * addr ) {
+inline __attribute__((always_inline))
+static void checkHeader( bool check, const char name[], void * addr ) {
 	if ( UNLIKELY( check ) ) {							// bad address ?
 		abort( "**** Error **** attempt to %s storage %p with address outside the heap.\n"
 			   "Possible cause is duplicate free on same block or overwriting of memory.",
@@ -777,7 +796,8 @@ static inline void checkHeader( bool check, const char name[], void * addr ) {
 #define MarkMmappedBit( size ) ((size) | 4)
 
 
-static inline void fakeHeader( Heap::Storage::Header *& header, size_t & alignment ) {
+inline __attribute__((always_inline))
+static void fakeHeader( Heap::Storage::Header *& header, size_t & alignment ) {
 	if ( UNLIKELY( AlignmentBit( header ) ) ) {			// fake header ?
 		alignment = ClearAlignmentBit( header );		// clear flag from value
 		#ifdef __DEBUG__
@@ -790,8 +810,9 @@ static inline void fakeHeader( Heap::Storage::Header *& header, size_t & alignme
 } // fakeHeader
 
 
-static inline bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::Storage::Header *& header,
-							Heap::FreeHeader *& freeHead, size_t & size, size_t & alignment ) {
+inline __attribute__((always_inline))
+static bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::Storage::Header *& header,
+					 Heap::FreeHeader *& freeHead, size_t & size, size_t & alignment ) {
 	header = HeaderAddr( addr );
 
 	#ifdef __DEBUG__
@@ -869,12 +890,12 @@ static void * manager_extend( size_t size ) {
 
 		rem = heapManager->heapReserve;					// positive
 
-		if ( rem >= heapMaster.bucketSizes[0] ) {		// minimal size ? otherwise ignore
+		if ( rem >= bucketSizes[0] ) {					// minimal size ? otherwise ignore
 			Heap::FreeHeader * freeHead =
 			#ifdef FASTLOOKUP
 				rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
 			#endif // FASTLOOKUP
-				std::lower_bound( heapManager->freeLists, heapManager->freeLists + heapMaster.maxBucketsUsed, rem ); // binary search
+				&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
 
 			// The remaining storage many not be bucket size, whereas all other allocations are. Round down to previous
 			// bucket size in this case.
@@ -923,30 +944,36 @@ static void * manager_extend( size_t size ) {
 
 
 #define SCRUB_SIZE 1024lu
+// Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
+// pointer in the interrupt frame.
 #define SCRUB '\xff'
 
-static inline void * doMalloc( size_t size STAT_PARM ) {
+static void * doMalloc( size_t size STAT_PARM ) {
 	PROLOG( STAT_NAME );
 
 	assert( heapManager );
-	Heap * heap = heapManager;							// optimization
 	Heap::Storage * block;								// pointer to new block of storage
 
 	// Look up size in the size list.  Make sure the user request includes space for the header that must be allocated
 	// along with the block and is a multiple of the alignment size.
 	size_t tsize = size + sizeof(Heap::Storage);		// total size needed
+	Heap * heap = heapManager;							// optimization
 
 	#ifdef __STATISTICS__
 	heap->stats.counters[STAT_NAME].calls += 1;
 	heap->stats.counters[STAT_NAME].request += size;
 	#endif // __STATISTICS__
 
+	#ifdef __DEBUG__
+	heap->allocUnfreed += size;
+	#endif // __DEBUG__
+
 	if ( LIKELY( tsize < heapMaster.mmapStart ) ) {		// small size => sbrk
 		Heap::FreeHeader * freeHead =
 			#ifdef FASTLOOKUP
 			LIKELY( tsize < LookupSizes ) ? &(heap->freeLists[lookup[tsize]]) :
 			#endif // FASTLOOKUP
-			std::lower_bound( heap->freeLists, heap->freeLists + heapMaster.maxBucketsUsed, tsize ); // binary search
+			&(heapManager->freeLists[Bsearchl( tsize, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
 
 		assert( freeHead <= &heap->freeLists[heapMaster.maxBucketsUsed] ); // subscripting error ?
 		assert( tsize <= freeHead->blockSize );			// search failure ?
@@ -955,6 +982,8 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 		#ifdef __STATISTICS__
 		heap->stats.counters[STAT_NAME].alloc += tsize;
 		#endif // __STATISTICS__
+
+		// Spin until the lock is acquired for this particular size of block.
 
 		block = freeHead->freeList;						// remove node from stack
 		if ( UNLIKELY( block == nullptr ) ) {			// no free block ?
@@ -974,7 +1003,7 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 
 				#ifdef __DEBUG__
 				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
-				memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
 			} else {									// merge returnList into freeHead
 				#ifdef __STATISTICS__
@@ -1002,14 +1031,14 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
 			if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, tsize ); // no memory
 			// Do not call strerror( errno ) as it may call malloc.
-			abort( "**** Error *** mmap failure: size:%zu %zu %zu error %d.", tsize, size, heapMaster.mmapStart, errno );
+			abort( "**** Error *** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.", size, heapMaster.mmapStart, errno );
 		} // if
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
 		#ifdef __DEBUG__
 		// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes. The
 		// rest of the storage set to 0 by mmap.
-		memset( block->data, SCRUB, std::min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+		memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 		#endif // __DEBUG__
 	} // if
 
@@ -1018,7 +1047,6 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 	assert( ((uintptr_t)addr & (__ALIGN__ - 1)) == 0 ); // minimum alignment ?
 
 	#ifdef __DEBUG__
-	heap->allocUnfreed += size;
 	debug( "\tdoMalloc %p %zd %zd %jd\n", heap, size, tsize, heap->allocUnfreed );
 	#endif // __DEBUG__
 
@@ -1026,7 +1054,7 @@ static inline void * doMalloc( size_t size STAT_PARM ) {
 } // doMalloc
 
 
-static inline void doFree( void * addr ) {
+static void doFree( void * addr ) {
 	assert( addr );
 	Heap * heap = heapManager;							// optimization
 
@@ -1049,9 +1077,10 @@ static inline void doFree( void * addr ) {
 		#endif // __STATISTICS__
 
 		if ( UNLIKELY( munmap( header, size ) == -1 ) ) {
-			abort( "**** Error **** attempt to deallocate storage %p not allocated or with corrupt header.\n"
-				   "Possible cause is invalid pointer.",
-				   addr );
+			// Do not call strerror( errno ) as it may call malloc.
+			abort( "**** Error **** attempt to deallocate large object %p and munmap failed with errno %d.\n"
+				   "Possible cause is invalid delete pointer: either not allocated or with corrupt header.",
+				   addr, errno );
 		} // if
 	} else {
 		#ifdef __DEBUG__
@@ -1299,7 +1328,7 @@ extern "C" {
 
 		headers( "realloc", naddr, header, freeHead, bsize, oalign );
 		// To preserve prior fill, the entire bucket must be copied versus the size.
-		memcpy( naddr, oaddr, std::min( osize, size ) ); // copy bytes
+		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
 		doFree( oaddr );								// free previous storage
 
 		if ( UNLIKELY( ozfill ) ) {						// previous request zero fill ?
@@ -1555,10 +1584,6 @@ extern "C" {
 
 // Must have C++ linkage to overload with C linkage realloc.
 void * resize( void * oaddr, size_t nalign, size_t size ) {
-	#ifdef __DEBUG__
-	checkAlign( nalign );								// check alignment
-	#endif // __DEBUG__
-
   if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) );
 	} // if
@@ -1645,7 +1670,7 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) {
 	void * naddr = memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 
 	headers( "realloc", naddr, header, freeHead, bsize, oalign );
-	memcpy( naddr, oaddr, std::min( osize, size ) );	// copy bytes
+	memcpy( naddr, oaddr, Min( osize, size ) );			// copy bytes
 	doFree( oaddr );									// free previous storage
 
 	if ( UNLIKELY( ozfill ) ) {							// previous request zero fill ?
