@@ -13,8 +13,11 @@
 #include <sys/sysinfo.h>								// get_nprocs
 
 #define FASTLOOKUP										// use O(1) table lookup from allocation size to bucket size
-#define RETURNSPIN										// toggle spinlock / lockfree stack
 #define OWNERSHIP										// return freed memory to owner thread
+#define RETURNSPIN										// toggle spinlock / lockfree queue
+#if ! defined( OWNERSHIP ) && defined( RETURNSPIN )
+#warning "RETURNSPIN is ignored without OWNERSHIP; suggest commenting out RETURNSPIN"
+#endif // ! OWNERSHIP && RETURNSPIN
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -97,7 +100,6 @@ static void debug( const char fmt[] __attribute__(( unused )), ... ) {
 #endif // __DEBUG_PRT__
 } // debug
 
-
 static inline __attribute__((always_inline)) bool Pow2( unsigned long int value ) {
 	// clears all bits below value, rounding value down to the next lower multiple of value
 	return (value & (value - 1)) == 0;
@@ -120,7 +122,23 @@ template< typename T > static inline __attribute__((always_inline)) T AtomicFetc
 } // AtomicFetchAdd
 
 
-//######################### Spin Lock #########################
+// std::min and std::lower_bound do not always inline, so substitute hand-coded versions.
+
+#define Min( x, y ) (x < y ? x : y)
+
+inline __attribute__((always_inline))
+static size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim ) {
+	size_t l = 0, m, h = dim;
+	while ( l < h ) {
+		m = (l + h) / 2;
+		if ( (unsigned int &)(vals[m]) < key ) {		// cast away const
+			l = m + 1;
+		} else {
+			h = m;
+		} // if
+	} // while
+	return l;
+} // Bsearchl
 
 
 // pause to prevent excess processor bus usage
@@ -252,10 +270,13 @@ struct Heap {
 	static_assert( __ALIGN__ >= sizeof( Storage ), "minimum alignment < sizeof( Storage )" );
 
 	struct __attribute__(( aligned (8) )) FreeHeader {
+		#ifdef OWNERSHIP
 		#ifdef RETURNSPIN
 		SpinLock_t returnLock;
 		#endif // RETURNSPIN
 		Storage * returnList;							// other thread return list
+		#endif // OWNERSHIP
+
 		Storage * freeList;								// thread free list
 		Heap * homeManager;								// heap owner (free storage to bucket, from bucket to heap)
 		size_t blockSize;								// size of allocations on this list
@@ -365,25 +386,6 @@ static const unsigned int bucketSizes[] = {				// different bucket sizes
 };
 
 static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array wrong" );
-
-
-// std::min and std::lower_bound do not always inline, so substitute hand-coded versions.
-
-#define Min( x, y ) (x < y ? x : y)
-
-inline __attribute__((always_inline))
-static size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim ) {
-	size_t l = 0, m, h = dim;
-	while ( l < h ) {
-		m = (l + h) / 2;
-		if ( (unsigned int &)(vals[m]) < key ) {		// cast away const
-			l = m + 1;
-		} else {
-			h = m;
-		} // if
-	} // while
-	return l;
-} // Bsearchl
 
 
 // Thread-local storage is allocated lazily when the storage is accessed.
@@ -500,10 +502,13 @@ Heap * HeapMaster::getHeap() {
 
 		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
 			heap->freeLists[j] = (Heap::FreeHeader){
+				#ifdef OWNERSHIP
 				#ifdef RETURNSPIN
 				.returnLock = 0,
-				#endif // RETURNSPIN
 				.returnList = nullptr,
+				#endif // RETURNSPIN
+				#endif // OWNERSHIP
+
 				.freeList = nullptr,
 				.homeManager = heap,
 				.blockSize = bucketSizes[j],
@@ -572,7 +577,7 @@ static void heapManagerDtor() {
 	// the thread. This final allocation must be handled in doFree for this thread and its terminated heap. However,
 	// this heap has just been put on the heap freelist, and hence there is a race returning the thread-local storage
 	// and a new thread using this heap. The current thread detects it is executing its last free in doFree via
-	// heapManager being null. The trick is for this thread to placed the last free onto the current heap's return-list as
+	// heapManager being null. The trick is for this thread to place the last free onto the current heap's return-list as
 	// the free-storage header points are this heap. Now, even if other threads are pushing to the return list, it is safe
 	// because of the locking.
 	#ifndef OWNERSHIP
@@ -615,7 +620,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	if ( allocUnfreed > 0 ) {
 		// DO NOT USE STREAMS AS THEY MAY BE UNAVAILABLE AT THIS POINT.
 		char helpText[512];
-		int len = snprintf( helpText, sizeof(helpText), "**** Warning **** (UNIX pid:%ld) : program terminating with %llu(0x%llx) bytes of storage allocated but not freed.\n"
+		int len = snprintf( helpText, sizeof(helpText), "**** Warning **** (UNIX pid:%ld) : program terminating with %ju(0x%jx) bytes of storage allocated but not freed.\n"
 							"Possible cause is unfreed storage allocated by the program or system/library routines called from the program.\n",
 							(long int)getpid(), allocUnfreed, allocUnfreed ); // always print the UNIX pid
 		if ( write( STDERR_FILENO, helpText, len ) == -1 ) abort( "**** Error **** write error in shutdown" );
@@ -983,34 +988,38 @@ static void * doMalloc( size_t size STAT_PARM ) {
 		heap->stats.counters[STAT_NAME].alloc += tsize;
 		#endif // __STATISTICS__
 
-		// Spin until the lock is acquired for this particular size of block.
-
 		block = freeHead->freeList;						// remove node from stack
 		if ( UNLIKELY( block == nullptr ) ) {			// no free block ?
-			// Freelist for that size is empty, so carve it out of the heap, if there is enough left, or get some more
-			// and then carve it off.
-			#ifdef RETURNSPIN
-			spin_acquire( &freeHead->returnLock );
-			block = freeHead->returnList;
-			freeHead->returnList = nullptr;
-			spin_release( &freeHead->returnLock );
-			#else
-			block = __atomic_exchange_n( &freeHead->returnList, nullptr, __ATOMIC_SEQ_CST );
-			#endif // RETURNSPIN
+			// Freelist for this size is empty, so check return list (OWNERSHIP), carve it out of the heap, if there
+			// is enough left, or get some more heap storage and carve it off.
+			#ifdef OWNERSHIP
+			if ( UNLIKELY( freeHead->returnList ) ) {	// race, get next time if lose race
+				#ifdef RETURNSPIN
+				spin_acquire( &freeHead->returnLock );
+				block = freeHead->returnList;
+				freeHead->returnList = nullptr;
+				spin_release( &freeHead->returnLock );
+				#else
+				block = __atomic_exchange_n( &freeHead->returnList, nullptr, __ATOMIC_SEQ_CST );
+				#endif // RETURNSPIN
 
-			if ( LIKELY( block == nullptr ) ) {			// return list also empty?
+				assert( block );
+				#ifdef __STATISTICS__
+				heap->stats.return_pulls += 1;
+				#endif // __STATISTICS__
+
+				freeHead->freeList = block->header.kind.real.next; // merge returnList into freeHead
+			} else {
+			#endif // OWNERSHIP
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 
 				#ifdef __DEBUG__
 				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
 				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
-			} else {									// merge returnList into freeHead
-				#ifdef __STATISTICS__
-				heap->stats.return_pulls += 1;
-				#endif // __STATISTICS__
-				freeHead->freeList = block->header.kind.real.next;
+			#ifdef OWNERSHIP
 			} // if
+			#endif // OWNERSHIP
 		} else {
 			// Memory is scrubbed in doFree.
 			freeHead->freeList = block->header.kind.real.next;
@@ -1020,6 +1029,7 @@ static void * doMalloc( size_t size STAT_PARM ) {
 	} else {											// large size => mmap
   if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) return nullptr; // error check
 		tsize = Ceiling( tsize, heapMaster.pageSize );	// must be multiple of page size
+
 		#ifdef __STATISTICS__
 		heap->stats.counters[STAT_NAME].alloc += tsize;
 		heap->stats.mmap_calls += 1;
@@ -1031,7 +1041,8 @@ static void * doMalloc( size_t size STAT_PARM ) {
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
 			if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, tsize ); // no memory
 			// Do not call strerror( errno ) as it may call malloc.
-			abort( "**** Error *** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.", size, heapMaster.mmapStart, errno );
+			abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
+				   size, heapMaster.mmapStart, errno );
 		} // if
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
@@ -1070,6 +1081,7 @@ static void doFree( void * addr ) {
 	#endif // __STATISTICS__ || __DEBUG__
 
 	if ( UNLIKELY( mapped ) ) {							// mmapped ?
+		assert( heap );
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
 		heap->stats.munmap_storage_request += rsize;
@@ -1095,21 +1107,11 @@ static void doFree( void * addr ) {
 		} // if
 		#endif // __DEBUG__
 
+		#ifdef OWNERSHIP
 		if ( LIKELY( heap == freeHead->homeManager ) ) { // belongs to this thread
 			header->kind.real.next = freeHead->freeList; // push on stack
 			freeHead->freeList = (Heap::Storage *)header;
 		} else {										// return to thread owner
-			#ifndef OWNERSHIP
-			if ( LIKELY( heap != nullptr ) ) {
-				freeHead = &heap->freeLists[ClearStickyBits( header->kind.real.home ) - &freeHead->homeManager->freeLists[0]];
-				header->kind.real.next = freeHead->freeList; // push on stack
-				freeHead->freeList = (Heap::Storage *)header;
-				goto cont;
-			} // if
-
-			freeHead = &shadow_heap->freeLists[header->kind.real.home - &freeHead->homeManager->freeLists[0]];
-			#endif // ! OWNERSHIP
-
 			#ifdef RETURNSPIN
 			spin_acquire( &freeHead->returnLock );
 			header->kind.real.next = freeHead->returnList; // push to bucket return list
@@ -1118,35 +1120,46 @@ static void doFree( void * addr ) {
 			#else										// lock free
 			header->kind.real.next = freeHead->returnList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->returnList on failure
-			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, header,
+			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap.Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
 			#endif // RETURNSPIN
-
-			if ( UNLIKELY( heap == nullptr ) ) {
-				#ifdef __STATISTICS__
-				AtomicFetchAdd( heapMaster.stats.free_storage_request, rsize );
-				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, size );
-				// return push counters are not incremented because this is a self-return push, and there is no
-				// corresponding pull counter that needs to match.
-				#endif // __STATISTICS__
-
-				#ifdef __DEBUG__
-				AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
-				debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
-				#endif // __DEBUG__
-				return;
-			} // if
-
-			#ifndef OWNERSHIP
-		  cont: ;
-			#endif // ! OWNERSHIP
-
-			#ifdef __STATISTICS__
-			heap->stats.return_pushes += 1;
-			heap->stats.return_storage_request += rsize;
-			heap->stats.return_storage_alloc += size;
-			#endif // __STATISTICS__
 		} // if
+
+		#else											// no OWNERSHIP
+
+		if ( LIKELY( heap != nullptr ) ) {
+			freeHead = &heap->freeLists[ClearStickyBits( header->kind.real.home ) - &freeHead->homeManager->freeLists[0]];
+			header->kind.real.next = freeHead->freeList; // push on stack
+			freeHead->freeList = (Heap::Storage *)header;
+		} else {
+			// thread_local storage is leaked. No-ownership is rife with storage that appears to be leaked in an
+			// application, unless great effort is made to deal with it. A typical example is a producer creating
+			// storage and a consumer deleting it. The deleted storage piles up in the consumer's heap, and hence,
+			// appears like leaked storage from the producer's perspective.
+		} // if
+		#endif // OWNERSHIP
+		
+		if ( UNLIKELY( heap == nullptr ) ) {
+			// Use master heap counters as heap is reused by this point.
+			#ifdef __STATISTICS__
+			AtomicFetchAdd( heapMaster.stats.free_storage_request, rsize );
+			AtomicFetchAdd( heapMaster.stats.free_storage_alloc, size );
+			// Return push counters are not incremented because this is a self-return push, and there is no
+			// corresponding pull counter that needs to match.
+			#endif // __STATISTICS__
+
+			#ifdef __DEBUG__
+			AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
+			debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
+			#endif // __DEBUG__
+			return;
+		} // if
+
+		#ifdef __STATISTICS__
+		heap->stats.return_pushes += 1;
+		heap->stats.return_storage_request += rsize;
+		heap->stats.return_storage_alloc += size;
+		#endif // __STATISTICS__
 	} // if
 
 	#ifdef __STATISTICS__
