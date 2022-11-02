@@ -1701,7 +1701,7 @@ void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) 
 } // reallocarray
 
 
-// zip -r llheap.zip heap/README.md heap/llheap.h heap/llheap.cc heap/Makefile heap/affinity.h heap/test.cc heap/away.cc
+// zip -r llheap.zip heap/README.md heap/llheap.h heap/llheap.cc heap/Makefile heap/affinity.h heap/test.cc heap/ownership.cc
 
 // g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS llheap.cc -fPIC -shared -o llheap.so
 
