@@ -1,6 +1,6 @@
 #include <string>										// stoi
 using namespace std;
-// Use C I/O because cout does not a good mechanism for thread-safe I/O.
+// Use C I/O because cout does not provide a good mechanism for thread-safe I/O.
 #include <stdlib.h>										// abort, getenv, EXIT_FAILURE
 #include <errno.h>										// errno
 #include <string.h>										// strerror
