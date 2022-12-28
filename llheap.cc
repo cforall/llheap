@@ -150,14 +150,14 @@ static size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim 
 	#error unsupported architecture
 #endif
 
-typedef volatile uintptr_t SpinLock_t CALIGN;			// aligned addressable word-size
+typedef volatile uintptr_t SpinLock_t;
 
 static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLock_t * lock ) {
 	enum { SPIN_START = 4, SPIN_END = 64 * 1024, };
 	unsigned int spin = SPIN_START;
 
 	for ( unsigned int i = 1;; i += 1 ) {
-	  if ( *lock == 0 && __atomic_test_and_set( lock, __ATOMIC_SEQ_CST ) == 0 ) break; // Fence
+	  if ( *lock == 0 && __atomic_test_and_set( lock, __ATOMIC_ACQUIRE ) == 0 ) break; // Fence
 		for ( volatile unsigned int s = 0; s < spin; s += 1 ) Pause(); // exponential spin
 		spin += spin;									// powers of 2
 		//if ( i % 64 == 0 ) spin += spin;				// slowly increase by powers of 2
@@ -166,7 +166,7 @@ static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLoc
 } // spin_lock
 
 static inline __attribute__((always_inline)) void spin_release( volatile SpinLock_t * lock ) {
-	__atomic_clear( lock, __ATOMIC_SEQ_CST );			// Fence
+	__atomic_clear( lock, __ATOMIC_RELEASE );			// Fence
 } // spin_unlock
 
 
@@ -269,7 +269,7 @@ struct Heap {
 
 	static_assert( __ALIGN__ >= sizeof( Storage ), "minimum alignment < sizeof( Storage )" );
 
-	struct __attribute__(( aligned (8) )) FreeHeader {
+	struct CALIGN FreeHeader {
 		#ifdef OWNERSHIP
 		#ifdef RETURNSPIN
 		SpinLock_t returnLock;
@@ -296,7 +296,7 @@ struct Heap {
 	Heap * nextFreeHeapManager;							// intrusive link of free heaps from terminated threads; reused by new threads
 
 	#ifdef __DEBUG__
-	int64_t allocUnfreed;								// running total of allocations minus frees; can be negative
+	ptrdiff_t allocUnfreed;								// running total of allocations minus frees; can be negative
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
@@ -335,7 +335,7 @@ namespace {												// hide static members
 		Heap * heapManagersStorageEnd;					// logical heap outside of superblock's end
 
 		#ifdef __DEBUG__
-		int64_t allocUnfreed;							// running total of allocations minus frees; can be negative
+		ptrdiff_t allocUnfreed;							// running total of allocations minus frees; can be negative
 		#endif // __DEBUG__
 
 		#ifdef __STATISTICS__
@@ -401,6 +401,7 @@ static __thread size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protec
 
 // declare helper functions for HeapMaster
 void noMemory();										// forward, called by "builtin_new" when malloc returns 0
+
 
 void HeapMaster::heapMasterCtor() {
 	// Singleton pattern to initialize heap master
@@ -474,7 +475,7 @@ Heap * HeapMaster::getHeap() {
 		// Heap size is about 12K, FreeHeader (128 bytes because of cache alignment) * NoBucketSizes (91) => 128 heaps *
 		// 12K ~= 120K byte superblock.  Where 128-heap superblock handles a medium sized multi-processor server.
 		size_t remaining = heapMaster.heapManagersStorageEnd - heapMaster.heapManagersStorage; // remaining free heaps in superblock
-		if ( ! heapMaster.heapManagersStorage || remaining != 0 ) {
+		if ( ! heapMaster.heapManagersStorage || remaining == 0 ) {
 			// Each block of heaps is a multiple of the number of cores on the computer.
 			int HeapDim = get_nprocs();					// get_nprocs_conf does not work
 			size_t size = HeapDim * sizeof( Heap );
@@ -523,6 +524,7 @@ Heap * HeapMaster::getHeap() {
 		#endif // __DEBUG__
 		heapManagerBootFlag = true;
 	} // if
+
 	return heap;
 } // HeapMaster::getHeap
 
@@ -596,7 +598,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 	assert( heapManager );
 	#ifdef __DEBUG__
 	debug( "startup %jd set to zero\n", heapManager->allocUnfreed );
-	heapManager->allocUnfreed = 0;
+	heapManager->allocUnfreed = 0;						// clear prior allocation counts
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
@@ -605,10 +607,10 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 } // startup
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
-	#ifdef __U_DEBUG__
+	#ifdef __DEBUG__
 	// allocUnfreed is set to 0 when a heap is created and it accumulates any unfreed storage during its multiple thread
 	// usages.  At the end, add up each heap allocUnfreed value across all heaps to get the total unfreed storage.
-	long long int allocUnfreed = heapMaster.allocUnfreed;
+	ptrdiff_t allocUnfreed = heapMaster.allocUnfreed;
 	debug( "shutdown1 %jd\n", heapMaster.allocUnfreed );
 	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
 		debug( "shutdown2 %p %jd\n", heap, heap->allocUnfreed );
@@ -616,11 +618,11 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	} // for
 
 	allocUnfreed -= malloc_unfreed();					// subtract any user specified unfreed storage
-	debug( "shutdown3 %lld %zd\n", allocUnfreed, malloc_unfreed() );
+	debug( "shutdown3 %td %zd\n", allocUnfreed, malloc_unfreed() );
 	if ( allocUnfreed > 0 ) {
 		// DO NOT USE STREAMS AS THEY MAY BE UNAVAILABLE AT THIS POINT.
 		char helpText[512];
-		int len = snprintf( helpText, sizeof(helpText), "**** Warning **** (UNIX pid:%ld) : program terminating with %ju(0x%jx) bytes of storage allocated but not freed.\n"
+		int len = snprintf( helpText, sizeof(helpText), "**** Warning **** (UNIX pid:%ld) : program terminating with %td(%#tx) bytes of storage allocated but not freed.\n"
 							"Possible cause is unfreed storage allocated by the program or system/library routines called from the program.\n",
 							(long int)getpid(), allocUnfreed, allocUnfreed ); // always print the UNIX pid
 		if ( write( STDERR_FILENO, helpText, len ) == -1 ) abort( "**** Error **** write error in shutdown" );
@@ -990,7 +992,7 @@ static void * doMalloc( size_t size STAT_PARM ) {
 
 		block = freeHead->freeList;						// remove node from stack
 		if ( UNLIKELY( block == nullptr ) ) {			// no free block ?
-			// Freelist for this size is empty, so check return list (OWNERSHIP), carve it out of the heap, if there
+			// Freelist for this size is empty, so check return list (OWNERSHIP), or carve it out of the heap if there
 			// is enough left, or get some more heap storage and carve it off.
 			#ifdef OWNERSHIP
 			if ( UNLIKELY( freeHead->returnList ) ) {	// race, get next time if lose race
@@ -1081,7 +1083,6 @@ static void doFree( void * addr ) {
 	#endif // __STATISTICS__ || __DEBUG__
 
 	if ( UNLIKELY( mapped ) ) {							// mmapped ?
-		assert( heap );
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
 		heap->stats.munmap_storage_request += rsize;
@@ -1123,6 +1124,28 @@ static void doFree( void * addr ) {
 			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap.Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
 			#endif // RETURNSPIN
+		
+			if ( UNLIKELY( heap == nullptr ) ) {
+				// Use master heap counters as heap is reused by this point.
+				#ifdef __STATISTICS__
+				AtomicFetchAdd( heapMaster.stats.free_storage_request, rsize );
+				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, size );
+				// Return push counters are not incremented because this is a self-return push, and there is no
+				// corresponding pull counter that needs to match.
+				#endif // __STATISTICS__
+
+				#ifdef __DEBUG__
+				AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
+				debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
+				#endif // __DEBUG__
+				return;
+			} // if
+
+			#ifdef __STATISTICS__
+			heap->stats.return_pushes += 1;
+			heap->stats.return_storage_request += rsize;
+			heap->stats.return_storage_alloc += size;
+			#endif // __STATISTICS__
 		} // if
 
 		#else											// no OWNERSHIP
@@ -1138,30 +1161,9 @@ static void doFree( void * addr ) {
 			// appears like leaked storage from the producer's perspective.
 		} // if
 		#endif // OWNERSHIP
-		
-		if ( UNLIKELY( heap == nullptr ) ) {
-			// Use master heap counters as heap is reused by this point.
-			#ifdef __STATISTICS__
-			AtomicFetchAdd( heapMaster.stats.free_storage_request, rsize );
-			AtomicFetchAdd( heapMaster.stats.free_storage_alloc, size );
-			// Return push counters are not incremented because this is a self-return push, and there is no
-			// corresponding pull counter that needs to match.
-			#endif // __STATISTICS__
-
-			#ifdef __DEBUG__
-			AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
-			debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
-			#endif // __DEBUG__
-			return;
-		} // if
-
-		#ifdef __STATISTICS__
-		heap->stats.return_pushes += 1;
-		heap->stats.return_storage_request += rsize;
-		heap->stats.return_storage_alloc += size;
-		#endif // __STATISTICS__
 	} // if
 
+	// Do not move these up because heap can be null!
 	#ifdef __STATISTICS__
 	heap->stats.free_storage_request += rsize;
 	heap->stats.free_storage_alloc += size;
