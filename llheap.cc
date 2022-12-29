@@ -897,14 +897,14 @@ static void * manager_extend( size_t size ) {
 
 		rem = heapManager->heapReserve;					// positive
 
-		if ( rem >= bucketSizes[0] ) {					// minimal size ? otherwise ignore
+		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
 			Heap::FreeHeader * freeHead =
 			#ifdef FASTLOOKUP
 				rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
 			#endif // FASTLOOKUP
 				&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
 
-			// The remaining storage many not be bucket size, whereas all other allocations are. Round down to previous
+			// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
 			// bucket size in this case.
 			if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
 			Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
