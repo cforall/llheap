@@ -863,7 +863,7 @@ static inline void * master_extend( size_t size ) {
 	spin_acquire( &heapMaster.extLock );
 
 	ptrdiff_t rem = heapMaster.heapRemaining - size;
-	if ( UNLIKELY( rem < 0 ) ) {
+	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
 
 		size_t increase = Ceiling( size > heapMaster.heapExpand ? size : heapMaster.heapExpand, __ALIGN__ );
@@ -891,7 +891,7 @@ static inline void * master_extend( size_t size ) {
 static void * manager_extend( size_t size ) {
 	ptrdiff_t rem = heapManager->heapReserve - size;
 
-	if ( UNLIKELY( rem < 0 ) ) {						// negative
+	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining reserve, use the current reserve to populate
 		// smaller freeLists, and increase the reserve.
 
