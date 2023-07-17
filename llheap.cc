@@ -586,7 +586,7 @@ static void heapManagerDtor() {
 	shadow_heap = heapManager;
 	#endif // ! OWNERSHIP
 	heapManager = nullptr;
-
+	heapManagerBootFlag = false;
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
 
@@ -942,8 +942,7 @@ static void * manager_extend( size_t size ) {
 
 #define PROLOG( counter, ... ) \
 	BOOT_HEAP_MANAGER; \
-	if ( UNLIKELY( size == 0 ) ||						/* 0 BYTE ALLOCATION RETURNS NULL POINTER */ \
-		UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
+	if ( UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
 		STAT_0_CNT( counter ); \
 		__VA_ARGS__; \
 		return nullptr; \
