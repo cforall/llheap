@@ -1,5 +1,5 @@
 CXX := g++-10
-CXXFLAGS := -g -O3 -Wall -Wextra # -D__DEBUG_PRT__
+CXXFLAGS := -g -O3 -Wall -Wextra # -D__NONNULL_0_ALLOC__ -D__DEBUG_PRT__
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
 
 MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name

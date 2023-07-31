@@ -14,6 +14,7 @@ creates 4 shared libraries that can be linked to a program to replace the defaul
 * **`libhThread-stats.o`** dynamically-linkable allocator optimized for debugging with statistics and debugging.
 
 By changing the Makefile (toggle `-D__STATISTICS__` and `-D__DEBUG__`) , it is possible to independently turn on statistics, debugging or both.
+By adding `-D__NONNULL_0_ALLOC__`, it is possible to get allocation addresses for a 0-sized allocation rather than a null pointer. 
 
 # Memory Allocator Design
 
