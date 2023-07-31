@@ -587,6 +587,7 @@ static void heapManagerDtor() {
 	#endif // ! OWNERSHIP
 	heapManager = nullptr;
 
+	heapManagerBootFlag = false;
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
 
@@ -595,15 +596,10 @@ static void heapManagerDtor() {
 
 
 NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor )
-	assert( heapManager );
+	if ( ! heapMasterBootFlag ) heapManagerCtor();		// sanity check
 	#ifdef __DEBUG__
-	debug( "startup %jd set to zero\n", heapManager->allocUnfreed );
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
 	#endif // __DEBUG__
-
-	#ifdef __STATISTICS__
-	HeapStatisticsCtor( heapManager->stats );			// clear statistic counters
-	#endif // __STATISTICS__
 } // startup
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
@@ -926,7 +922,10 @@ static void * manager_extend( size_t size ) {
 } // manager_extend
 
 
-#define BOOT_HEAP_MANAGER if ( UNLIKELY( ! heapManagerBootFlag ) ) heapManagerCtor(); /* trigger for first heap */
+#define BOOT_HEAP_MANAGER \
+  	if ( UNLIKELY( ! heapManagerBootFlag ) ) { \
+		heapManagerCtor(); /* trigger for first heap */ \
+	} /* if */
 
 #ifdef __STATISTICS__
 #define STAT_NAME __counter
@@ -940,9 +939,18 @@ static void * manager_extend( size_t size ) {
 #define STAT_0_CNT( counter )
 #endif // __STATISTICS__
 
+// Uncomment to get allocation addresses for a 0-sized allocation rather than a null pointer.
+//#define __NONNULL_0_ALLOC__
+#if ! defined( __NONNULL_0_ALLOC__ )
+#define __NULL_0_ALLOC__ UNLIKELY( size == 0 ) ||		/* 0 BYTE ALLOCATION RETURNS NULL POINTER */
+#else
+#define __NULL_0_ALLOC__
+#endif // __NONNULL_0_ALLOC__
+
 #define PROLOG( counter, ... ) \
 	BOOT_HEAP_MANAGER; \
-	if ( UNLIKELY( size == 0 ) ||						/* 0 BYTE ALLOCATION RETURNS NULL POINTER */ \
+	if ( \
+		__NULL_0_ALLOC__ \
 		UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
 		STAT_0_CNT( counter ); \
 		__VA_ARGS__; \
