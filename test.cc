@@ -217,7 +217,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/reverse-free %'d bytes%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/reverse-free %'d bytes %7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
 
 	// group malloc/reverse-free FIXED2 bytes
 	start = currTime();
@@ -229,12 +229,12 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/reverse-free %'d bytes%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/reverse-free %'d bytes %7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
 #endif // 0
 	return nullptr;
 } // worker
 
-int main( int argc, char *argv[] ) {
+int main( int argc, char * argv[] ) {
 	setlocale( LC_NUMERIC, getenv( "LANG" ) );
 
 #if 1
