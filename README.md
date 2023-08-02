@@ -37,7 +37,7 @@ The objectives of the llheap design are:
 * `calloc` sets the sticky zero-fill property
 * `memalign` sets the alignment sticky property, remembering the specified alignment size
 * `realloc` preserved all sticky properties when moving and increasing space
-* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic flag.
+* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic flag. Existence of shell variable LLHEAP_MALLOC_STATS implicitly calls malloc_stats at program termination.
 
 **Return:** side-effect of writing out statistics.
 

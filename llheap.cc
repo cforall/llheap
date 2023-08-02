@@ -572,6 +572,7 @@ static void heapManagerDtor() {
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
+	heapMaster.stats += heapManager->stats;				// retain this heap's statistics
 	heapMaster.threads_exited += 1;
 	#endif // __STATISTICS__
 
@@ -603,6 +604,12 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 } // startup
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
+	#ifdef __STATISTICS__
+	if ( getenv( "LLHEAP_MALLOC_STATS" ) ) {			// check for external printing
+		malloc_stats();
+	} // if
+	#endif // __STATISTICS__
+
 	#ifdef __DEBUG__
 	// allocUnfreed is set to 0 when a heap is created and it accumulates any unfreed storage during its multiple thread
 	// usages.  At the end, add up each heap allocUnfreed value across all heaps to get the total unfreed storage.
@@ -715,7 +722,7 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see mallo
 
 static inline HeapStatistics & collectStats( HeapStatistics & stats ) {
 	spin_acquire( &heapMaster.mgrLock );
-
+	// Accumulate the heap master and all active heaps.
 	stats += heapMaster.stats;
 	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
 		stats += heap->stats;
