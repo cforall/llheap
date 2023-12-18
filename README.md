@@ -38,6 +38,7 @@ The objectives of the llheap design are:
 * `memalign` sets the alignment sticky property, remembering the specified alignment size
 * `realloc` preserved all sticky properties when moving and increasing space
 * `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic flag. Existence of shell variable LLHEAP_MALLOC_STATS implicitly calls malloc_stats at program termination.
+* `malloc_stats_clear` clears all thread statistic couters. llheap must be compiled with statistic flag.
 
 **Return:** side-effect of writing out statistics.
 
@@ -150,3 +151,6 @@ set the crossover between allocations occuring in the sbrk area or separately mm
 amount subtracted to adjust for unfreed program storage (debug only).
 
 **Return:** new subtraction amount and called by `malloc_stats`.
+
+### `void malloc_stats_clear()`
+clear the statistics counters for the master heap and all thread heaps.

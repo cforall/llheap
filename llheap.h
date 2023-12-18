@@ -24,6 +24,7 @@ extern "C" {
 	size_t malloc_expansion();							// heap expansion size (bytes)
 	size_t malloc_mmap_start();							// crossover allocation size from sbrk to mmap
 	size_t malloc_unfreed();							// heap unfreed size (bytes)
+	void malloc_stats_clear();							// clear heap statistics
 } // extern "C"
 
 // New allocation operations.

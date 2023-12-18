@@ -722,15 +722,28 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see mallo
 
 static inline HeapStatistics & collectStats( HeapStatistics & stats ) {
 	spin_acquire( &heapMaster.mgrLock );
-	// Accumulate the heap master and all active heaps.
+
+	// Accumulate the heap master and all active thread heaps.
 	stats += heapMaster.stats;
 	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
-		stats += heap->stats;
+		stats += heap->stats;							// calls HeapStatistics +=
 	} // for
 
 	spin_release(&heapMaster.mgrLock);
 	return stats;
 } // collectStats
+
+static inline void clearStats() {
+	spin_acquire( &heapMaster.mgrLock );
+
+	// Zero the heap master and all active thread heaps.
+	HeapStatisticsCtor( heapMaster.stats );
+	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
+		HeapStatisticsCtor( heap->stats );
+	} // for
+
+	spin_release(&heapMaster.mgrLock);
+} // clearStats
 #endif // __STATISTICS__
 
 
@@ -1535,6 +1548,17 @@ extern "C" {
 		} // if
 	} // malloc_stats
 
+	// Zero the heap master and all active thread heaps.
+	void malloc_stats_clear() {
+		#ifdef __STATISTICS__
+		clearStats();
+		#else
+		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
+		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
+			abort( "**** Error **** write failed in malloc_stats" );
+		} // if
+		#endif // __STATISTICS__
+	} // malloc_stats_clear
 
 	// Changes the file descriptor where malloc_stats() writes statistics.
 	int malloc_stats_fd( int fd __attribute__(( unused )) ) {
