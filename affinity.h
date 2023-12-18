@@ -1,7 +1,7 @@
 #include <stdio.h>										// perror
 #include <pthread.h>
 
-void affinity( pthread_t pthreadid, unsigned int tid ) {
+void affinity( unsigned int tid, cpu_set_t & mask ) {
 	#if defined( plg2 )									// old AMD
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 16, HYPER = 1 };
 	tid *= 8; // seperate caches
@@ -24,13 +24,6 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
 	//printf( "%d\n", cpu );
 
-	cpu_set_t mask;
 	CPU_ZERO( &mask );
 	CPU_SET( cpu, &mask );
-	int rc = pthread_setaffinity_np( pthreadid, sizeof(cpu_set_t), &mask );
-	if ( rc != 0 ) {
-		errno = rc;
-		perror( "***ERROR*** setaffinity failure" );
-		abort();
-	} // if
 } // affinity
