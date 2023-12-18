@@ -1,4 +1,4 @@
-CXX := g++-10
+CXX := g++-11
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__NONNULL_0_ALLOC__ -D__DEBUG_PRT__
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
 
