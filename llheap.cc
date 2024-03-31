@@ -195,7 +195,7 @@ struct HeapStatistics {
 			unsigned long long int resize_storage_request, resize_storage_alloc;
 			unsigned int realloc_calls, realloc_0_calls;
 			unsigned long long int realloc_storage_request, realloc_storage_alloc;
-			unsigned int free_calls, free_null_calls;
+			unsigned int free_calls, free_null_0_calls;
 			unsigned long long int free_storage_request, free_storage_alloc;
 			unsigned int return_pulls, return_pushes;
 			unsigned long long int return_storage_request, return_storage_alloc;
@@ -242,18 +242,14 @@ struct Heap {
 	struct Storage {
 		struct Header {									// header
 			union Kind {
-				struct RealHeader {
+				struct RealHeader {						// 4-byte word => 8-byte header, 8-byte word => 16-byte header
 					union {
-						struct {						// 4-byte word => 8-byte header, 8-byte word => 16-byte header
-							union {
-								// 2nd low-order bit => zero filled, 3rd low-order bit => mmapped
-								FreeHeader * home;		// allocated block points back to home locations (must overlay alignment)
-								size_t blockSize;		// size for munmap (must overlay alignment)
-								Storage * next;			// freed block points to next freed block of same size
-							};
-							size_t size;				// allocation size in bytes
-						};
+						// 2nd low-order bit => zero filled, 3rd low-order bit => mmapped
+						FreeHeader * home;				// allocated block points back to home locations (must overlay alignment)
+						size_t blockSize;				// size for munmap (must overlay alignment)
+						Storage * next;					// freed block points to next freed block of same size
 					};
+					size_t size;						// allocation size in bytes
 				} real; // RealHeader
 
 				struct FakeHeader {
@@ -645,7 +641,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  cmemalign >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
 	"  resize    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
 	"  realloc   >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  free      !null calls %'u; null calls %'u; storage %'llu / %'llu bytes\n" \
+	"  free      !null calls %'u; null/0 calls %'u; storage %'llu / %'llu bytes\n" \
 	"  return    pulls %'u; pushes %'u; storage %'llu / %'llu bytes\n" \
 	"  sbrk      calls %'u; storage %'llu bytes\n" \
 	"  mmap      calls %'u; storage %'llu / %'llu bytes\n" \
@@ -665,7 +661,7 @@ static int printStats( HeapStatistics & stats ) {		// see malloc_stats
 			stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
 			stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
-			stats.free_calls, stats.free_null_calls, stats.free_storage_request, stats.free_storage_alloc,
+			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
 			stats.return_pulls, stats.return_pushes, stats.return_storage_request, stats.return_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
@@ -689,7 +685,7 @@ static int printStats( HeapStatistics & stats ) {		// see malloc_stats
 	"<total type=\"cmemalign\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"resize\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"realloc\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"free\" !null=\"%'u;\" 0 null=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"free\" !null=\"%'u;\" 0 null/0=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"return\" pulls=\"%'u;\" 0 pushes=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"sbrk\" count=\"%'u;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"mmap\" count=\"%'u;\" size=\"%'llu / %'llu\" / > bytes\n" \
@@ -709,7 +705,7 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see mallo
 			stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
 			stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
-			stats.free_calls, stats.free_null_calls, stats.free_storage_request, stats.free_storage_alloc,
+			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
 			stats.return_pulls, stats.return_pushes, stats.return_storage_request, stats.return_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
@@ -942,11 +938,6 @@ static void * manager_extend( size_t size ) {
 } // manager_extend
 
 
-#define BOOT_HEAP_MANAGER \
-  	if ( UNLIKELY( ! heapManagerBootFlag ) ) { \
-		heapManagerCtor(); /* trigger for first heap */ \
-	} /* if */
-
 #ifdef __STATISTICS__
 #define STAT_NAME __counter
 #define STAT_PARM , unsigned int STAT_NAME
@@ -959,24 +950,38 @@ static void * manager_extend( size_t size ) {
 #define STAT_0_CNT( counter )
 #endif // __STATISTICS__
 
-// Uncomment to get allocation addresses for a 0-sized allocation rather than a null pointer.
-//#define __NONNULL_0_ALLOC__
-#if ! defined( __NONNULL_0_ALLOC__ )
-#define __NULL_0_ALLOC__ UNLIKELY( size == 0 ) ||		/* 0 BYTE ALLOCATION RETURNS NULL POINTER */
+#define BOOT_HEAP_MANAGER \
+  	if ( UNLIKELY( ! heapManagerBootFlag ) ) { \
+		heapManagerCtor(); /* trigger for first heap */ \
+	} /* if */ \
+	assert( heapManager );
+
+#define __NONNULL_0_ALLOC__ /* Uncomment to return non-null address for malloc( 0 ). */
+#ifndef __NONNULL_0_ALLOC__
+#define __NULL_0_ALLOC__( counter, ... ) /* 0 byte allocation returns null pointer */ \
+	if ( UNLIKELY( size == 0 ) ) { \
+		STAT_0_CNT( counter ); \
+		__VA_ARGS__; /* call routine, if specified */ \
+		return nullptr; \
+	} /* if */
 #else
-#define __NULL_0_ALLOC__
+#define __NULL_0_ALLOC__( counter, ... )
 #endif // __NONNULL_0_ALLOC__
+
+#ifdef __DEBUG__
+#define __OVERFLOW_MALLOC__( ... ) \
+	if ( UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
+		__VA_ARGS__; /* call routine, if specified */ \
+		return nullptr; \
+	} /* if */
+#else
+#define __OVERFLOW_MALLOC__( ... )
+#endif // __DEBUG__
 
 #define PROLOG( counter, ... ) \
 	BOOT_HEAP_MANAGER; \
-	if ( \
-		__NULL_0_ALLOC__ \
-		UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
-		STAT_0_CNT( counter ); \
-		__VA_ARGS__; \
-		return nullptr; \
-	} /* if */
-
+	__NULL_0_ALLOC__( counter, __VA_ARGS__ ) \
+	__OVERFLOW_MALLOC__( __VA_ARGS__ )
 
 #define SCRUB_SIZE 1024lu
 // Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
@@ -986,7 +991,6 @@ static void * manager_extend( size_t size ) {
 static void * doMalloc( size_t size STAT_PARM ) {
 	PROLOG( STAT_NAME );
 
-	assert( heapManager );
 	Heap::Storage * block;								// pointer to new block of storage
 
 	// Look up size in the size list.  Make sure the user request includes space for the header that must be allocated
@@ -995,7 +999,12 @@ static void * doMalloc( size_t size STAT_PARM ) {
 	Heap * heap = heapManager;							// optimization
 
 	#ifdef __STATISTICS__
-	heap->stats.counters[STAT_NAME].calls += 1;
+	#ifdef __NONNULL_0_ALLOC__
+	if ( size == 0 )
+		heap->stats.counters[STAT_NAME].calls_0 += 1;
+	else
+	#endif // __NONNULL_0_ALLOC__
+		heap->stats.counters[STAT_NAME].calls += 1;
 	heap->stats.counters[STAT_NAME].request += size;
 	#endif // __STATISTICS__
 
@@ -1193,6 +1202,11 @@ static void doFree( void * addr ) {
 
 	// Do not move these up because heap can be null!
 	#ifdef __STATISTICS__
+	#ifdef __NONNULL_0_ALLOC__
+	if ( UNLIKELY( rsize == 0 ) ) {						// malloc( 0 ) ?
+		heap->stats.free_null_0_calls += 1;
+	} // if
+	#endif // __NONNULL_0_ALLOC__
 	heap->stats.free_storage_request += rsize;
 	heap->stats.free_storage_alloc += size;
 	#endif // __STATISTICS__
@@ -1469,8 +1483,8 @@ extern "C" {
 		// Detect free after thread-local storage destruction and use global stats in that case.
 	  if ( UNLIKELY( addr == nullptr ) ) {				// special case
 			#ifdef __STATISTICS__
-			if ( LIKELY( heapManager ) ) heapManager->stats.free_null_calls += 1;
-			else AtomicFetchAdd( heapMaster.stats.free_null_calls, 1 );
+			if ( LIKELY( heapManager ) ) heapManager->stats.free_null_0_calls += 1;
+			else AtomicFetchAdd( heapMaster.stats.free_null_0_calls, 1 );
 			#endif // __STATISTICS__
 			return;
 		} // if
