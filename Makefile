@@ -42,18 +42,23 @@ libllheap-stats-debug.so : llheap.cc llheap.h
 clean :
 	rm -f ${OBJECTS} a.out
 
+# testgen.cc testllheap.cc
+testpgm := testgen.cc
+
 test : ${OBJECTS}
 #	set -x
-	echo "\nDefault allocator"
-	echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc -lpthread
-	${CXX} ${CXXFLAGS} -D`hostname` test.cc -lpthread
-	${TIME} ./a.out
-	echo "\n#######################################\n"
+	if  [ "${testpgm}" != "testllheap.cc" ] ; then
+		echo "\nDefault allocator"
+		echo ${CXX} ${CXXFLAGS} -D`hostname` ${testpgm} -lpthread
+		${CXX} ${CXXFLAGS} -D`hostname` ${testpgm} -lpthread
+		${TIME} ./a.out
+		echo "\n#######################################\n"
+	fi
 	for lk in "" "s" ; do
 		for sd in "" "-stats" "-debug" "-stats-debug" ; do
 			echo ".$${lk}o linkage, $${sd:-no stats}"
-			echo ${CXX} ${CXXFLAGS} -D`hostname` test.cc libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
-			${CXX} ${CXXFLAGS} -D`hostname` test.cc libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
+			echo ${CXX} ${CXXFLAGS} -D`hostname` ${testpgm} libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
+			${CXX} ${CXXFLAGS} -D`hostname` ${testpgm} libllheap$${sd}.$${lk}o -lpthread $${lk:+-U malloc -Wl,-rpath=.}
 			${TIME} ./a.out
 			echo "\n#######################################\n"
 		done
