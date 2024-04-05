@@ -211,7 +211,7 @@ struct HeapStatistics {
 	};
 }; // HeapStatistics
 
-static_assert( sizeof(HeapStatistics) == CntTriples * sizeof(HeapStatistics::counters[0] ),
+static_assert( sizeof(HeapStatistics) == CntTriples * sizeof(HeapStatistics::counters[0]),
 			   "Heap statistics counter-triplets does not match with array size" );
 
 static void HeapStatisticsCtor( HeapStatistics & stats ) {
@@ -1323,7 +1323,7 @@ extern "C" {
 		headers( "resize", oaddr, header, freeHead, bsize, oalign );
 
 		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
-		// same size, DO NOT preserve STICKY PROPERTIES.
+		// same size, DO NOT PRESERVE STICKY PROPERTIES.
 		if ( oalign == __ALIGN__ && size <= odsize && odsize <= size * 2 ) { // allow 50% wasted storage for smaller size
 			ClearZeroFillBit( header );					// no alignment and turn off 0 fill
 			#ifdef __DEBUG__
@@ -1336,7 +1336,7 @@ extern "C" {
 			return oaddr;
 		} // if
 
-		// change size, DO NOT preserve STICKY PROPERTIES.
+		// change size, DO NOT PRESERVE STICKY PROPERTIES.
 		doFree( oaddr );								// free previous storage
 
 		return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
@@ -1694,7 +1694,7 @@ void * resize( void * oaddr, size_t nalign, size_t size ) {
 		return resize( oaddr, size );					// duplicate special case checks
 	} // if
 
-	// change size, DO NOT preserve STICKY PROPERTIES.
+	// change size, DO NOT PRESERVE STICKY PROPERTIES.
 	doFree( oaddr );									// free previous storage
 	return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
 } // resize
