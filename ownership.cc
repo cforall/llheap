@@ -63,10 +63,11 @@ template<typename T> class BoundedBuffer {				// barging
 
 BoundedBuffer<void *> buffer( 10'000 );
 
+enum { BufSize = 20'000'000 };
 struct Buf {
-	char buf[20'000'000];
-	Buf() { for ( int i = 0; i < 20'000'000; i += 1 ) buf[i] = '\0'; }
-	~Buf() { for ( int i = 0; i < 20'000'000; i += 1 ) buf[i] = '\xff' ; }
+	char buf[BufSize];
+	Buf() { for ( int i = 0; i < BufSize; i += 1 ) buf[i] = '\0'; }
+	~Buf() { for ( int i = 0; i < BufSize; i += 1 ) buf[i] = '\xff' ; }
 };
 
 thread_local Buf buf;
@@ -92,14 +93,21 @@ extern "C" size_t malloc_unfreed() { return 3 * 304 /* pthreads */; }
 
 int main() {
 	pthread_t prod1, prod2, cons;
+	cpu_set_t mask;
 
 	if ( pthread_create( &cons, NULL, Cons, NULL ) < 0 ) abort();
-	affinity( cons, 0 );
+	affinity( 0, mask );
+	if ( pthread_setaffinity_np( cons, sizeof(cpu_set_t), &mask ) ) abort();
+
 	if ( pthread_create( &prod1, NULL, Prod, (void *)(N / 4) ) < 0 ) abort();
-	affinity( prod1, 1 );
+	affinity( 1, mask );
+	if ( pthread_setaffinity_np( prod1, sizeof(cpu_set_t), &mask ) ) abort();
+
 	if ( pthread_create( &prod2, NULL, Prod, (void *)(N * 3 / 4) ) < 0 ) abort();
-	affinity( prod2, 2 );
-	for ( int i = 0; i < 20'000'000; i += 1 ) buf.buf[i] = 'a';
+	affinity( 2, mask );
+	if ( pthread_setaffinity_np( prod2, sizeof(cpu_set_t), &mask ) ) abort();
+
+	for ( int i = 0; i < BufSize; i += 1 ) buf.buf[i] = 'a';
 
 	if ( pthread_join( prod2, NULL ) < 0 ) abort();
 	if ( pthread_join( prod1, NULL ) < 0 ) abort();
