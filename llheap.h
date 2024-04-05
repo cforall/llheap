@@ -28,8 +28,9 @@ extern "C" {
 } // extern "C"
 
 // New allocation operations.
-void * resize( void * oaddr, size_t alignment, size_t size );
-void * realloc( void * oaddr, size_t alignment, size_t size );
+void * resize( void * oaddr, size_t nalign, size_t size );
+void * realloc( void * oaddr, size_t nalign, size_t size );
+void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize );
 
 // Local Variables: //
 // tab-width: 4 //
