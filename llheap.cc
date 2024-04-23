@@ -843,9 +843,10 @@ static bool headers( const char name[] __attribute__(( unused )), void * addr, H
 		alignment = __ALIGN__;
 	} else {
 		fakeHeader( header, alignment );
-		if ( UNLIKELY( MmappedBit( header ) ) ) {
+		if ( UNLIKELY( MmappedBit( header ) ) ) {		// mapped storage ?
 			assert( addr < heapMaster.heapBegin || heapMaster.heapEnd < addr );
 			size = ClearStickyBits( header->kind.real.blockSize ); // mmap size
+			freeHead = nullptr;							// prevent uninitialized warning
 			return true;
 		} // if
 
@@ -988,7 +989,7 @@ static void * manager_extend( size_t size ) {
 // pointer in the interrupt frame.
 #define SCRUB '\xff'
 
-static void * doMalloc( size_t size STAT_PARM ) {
+static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
 	PROLOG( STAT_NAME );
 
 	Heap::Storage * block;								// pointer to new block of storage
@@ -1000,7 +1001,7 @@ static void * doMalloc( size_t size STAT_PARM ) {
 
 	#ifdef __STATISTICS__
 	#ifdef __NONNULL_0_ALLOC__
-	if ( size == 0 )
+	if ( UNLIKELY( size == 0 ) )						// malloc( 0 ) ?
 		heap->stats.counters[STAT_NAME].calls_0 += 1;
 	else
 	#endif // __NONNULL_0_ALLOC__
@@ -1104,7 +1105,7 @@ static void * doMalloc( size_t size STAT_PARM ) {
 } // doMalloc
 
 
-static void doFree( void * addr ) {
+static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	assert( addr );
 	Heap * heap = heapManager;							// optimization
 
@@ -1133,6 +1134,7 @@ static void doFree( void * addr ) {
 				   addr, errno );
 		} // if
 	} else {
+		assert( freeHead );
 		#ifdef __DEBUG__
 		// Scrub old memory so subsequent usages might fail. Only scrub the first/last SCRUB_SIZE bytes.
 		char * data = ((Heap::Storage *)header)->data;	// data address
@@ -1203,10 +1205,11 @@ static void doFree( void * addr ) {
 	// Do not move these up because heap can be null!
 	#ifdef __STATISTICS__
 	#ifdef __NONNULL_0_ALLOC__
-	if ( UNLIKELY( rsize == 0 ) ) {						// malloc( 0 ) ?
+	if ( UNLIKELY( rsize == 0 ) )						// malloc( 0 ) ?
 		heap->stats.free_null_0_calls += 1;
-	} // if
+	else
 	#endif // __NONNULL_0_ALLOC__
+		heapManager->stats.free_calls += 1;				// count free amd implicit frees from resize/realloc
 	heap->stats.free_storage_request += rsize;
 	heap->stats.free_storage_alloc += size;
 	#endif // __STATISTICS__
@@ -1218,7 +1221,7 @@ static void doFree( void * addr ) {
 } // doFree
 
 
-static inline void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
+static inline __attribute__((always_inline)) void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
 	checkAlign( alignment );							// check alignment
 
 	// if alignment <= default alignment or size == 0, do normal malloc as two headers are unnecessary
@@ -1491,11 +1494,6 @@ extern "C" {
 
 		// Do not move this up ...
 		BOOT_HEAP_MANAGER;								// trigger for first heap
-
-		#ifdef __STATISTICS__
-		if ( LIKELY( heapManager ) ) heapManager->stats.free_calls += 1;
-		else AtomicFetchAdd( heapMaster.stats.free_calls, 1 );
-		#endif // __STATISTICS__
 
 		doFree( addr );									// handles heapManager == nullptr
 	} // free
