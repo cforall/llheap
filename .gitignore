@@ -1,4 +1,1 @@
-libhThread.o
-libhThread-stats.o
-libhThread.so
-libhThread-stats.so
+libllheap*
