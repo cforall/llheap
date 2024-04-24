@@ -1649,7 +1649,7 @@ extern "C" {
 
 
 // Must have C++ linkage to overload with C linkage realloc.
-void * resize( void * oaddr, size_t nalign, size_t size ) {
+void * resize( void * oaddr, size_t nalign, size_t size ) __THROW {
   if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) );
 	} // if
@@ -1698,7 +1698,7 @@ void * resize( void * oaddr, size_t nalign, size_t size ) {
 } // resize
 
 
-void * realloc( void * oaddr, size_t nalign, size_t size ) {
+void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
   if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) );
 	} // if
@@ -1749,7 +1749,7 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) {
 } // realloc
 
 
-void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) {
+void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) __THROW {
 	return realloc( oaddr, nalign, dim * elemSize );
 } // reallocarray
 
