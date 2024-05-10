@@ -276,8 +276,8 @@ int main( int argc, char * argv[] ) {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
+// g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` test.cc libllheap.o -lpthread" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libllheap.o -lpthread" //
 // End: //
