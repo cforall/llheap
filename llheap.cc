@@ -178,34 +178,36 @@ enum { CntTriples = 12 };								// number of counter triples
 struct HeapStatistics {
 	enum { MALLOC, AALLOC, CALLOC, MEMALIGN, AMEMALIGN, CMEMALIGN, RESIZE, REALLOC, FREE };
 	union {
+		// Statistic counters are unsigned long long int => use 64-bit counters on both 32 and 64 bit architectures.
+		// On 32-bit architectures, the 64-bit counters are simulated with multi-precise 32-bit computations.
 		struct {										// minimum qualification
-			unsigned int malloc_calls, malloc_0_calls;
+			unsigned long long int malloc_calls, malloc_0_calls;
 			unsigned long long int malloc_storage_request, malloc_storage_alloc;
-			unsigned int aalloc_calls, aalloc_0_calls;
+			unsigned long long int aalloc_calls, aalloc_0_calls;
 			unsigned long long int aalloc_storage_request, aalloc_storage_alloc;
-			unsigned int calloc_calls, calloc_0_calls;
+			unsigned long long int calloc_calls, calloc_0_calls;
 			unsigned long long int calloc_storage_request, calloc_storage_alloc;
-			unsigned int memalign_calls, memalign_0_calls;
+			unsigned long long int memalign_calls, memalign_0_calls;
 			unsigned long long int memalign_storage_request, memalign_storage_alloc;
-			unsigned int amemalign_calls, amemalign_0_calls;
+			unsigned long long int amemalign_calls, amemalign_0_calls;
 			unsigned long long int amemalign_storage_request, amemalign_storage_alloc;
-			unsigned int cmemalign_calls, cmemalign_0_calls;
+			unsigned long long int cmemalign_calls, cmemalign_0_calls;
 			unsigned long long int cmemalign_storage_request, cmemalign_storage_alloc;
-			unsigned int resize_calls, resize_0_calls;
+			unsigned long long int resize_calls, resize_0_calls;
 			unsigned long long int resize_storage_request, resize_storage_alloc;
-			unsigned int realloc_calls, realloc_0_calls;
+			unsigned long long int realloc_calls, realloc_0_calls;
 			unsigned long long int realloc_storage_request, realloc_storage_alloc;
-			unsigned int free_calls, free_null_0_calls;
+			unsigned long long int free_calls, free_null_0_calls;
 			unsigned long long int free_storage_request, free_storage_alloc;
-			unsigned int return_pulls, return_pushes;
+			unsigned long long int return_pulls, return_pushes;
 			unsigned long long int return_storage_request, return_storage_alloc;
-			unsigned int mmap_calls, mmap_0_calls;		// no zero calls
+			unsigned long long int mmap_calls, mmap_0_calls; // no zero calls
 			unsigned long long int mmap_storage_request, mmap_storage_alloc;
-			unsigned int munmap_calls, munmap_0_calls;	// no zero calls
+			unsigned long long int munmap_calls, munmap_0_calls; // no zero calls
 			unsigned long long int munmap_storage_request, munmap_storage_alloc;
 		};
 		struct {										// overlay for iteration
-			unsigned int calls, calls_0;
+			unsigned long long int calls, calls_0;
 			unsigned long long int request, alloc;
 		} counters[CntTriples];
 	};
@@ -336,9 +338,9 @@ namespace {												// hide static members
 
 		#ifdef __STATISTICS__
 		HeapStatistics stats;							// global stats for thread-local heaps to add there counters when exiting
-		unsigned long int threads_started, threads_exited; // counts threads that have started and exited
-		unsigned long int reused_heap, new_heap;		// counts reusability of heaps
-		unsigned int sbrk_calls;
+		unsigned long long int threads_started, threads_exited; // counts threads that have started and exited
+		unsigned long long int reused_heap, new_heap;	// counts reusability of heaps
+		unsigned long long int sbrk_calls;
 		unsigned long long int sbrk_storage;
 		int stats_fd;
 		#endif // __STATISTICS__
@@ -385,14 +387,14 @@ static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0
 
 
 // Thread-local storage is allocated lazily when the storage is accessed.
-static __thread size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
+static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
 static thread_local ThreadManager threadManager CALIGN TLSMODEL;
-static __thread Heap * heapManager CALIGN TLSMODEL;
+static thread_local Heap * heapManager CALIGN TLSMODEL;
 #ifndef OWNERSHIP
-static __thread Heap * shadow_heap CALIGN TLSMODEL;
+static thread_local Heap * shadow_heap CALIGN TLSMODEL;
 #endif // ! OWNERSHIP
-static __thread bool heapManagerBootFlag CALIGN TLSMODEL = false;
-static __thread size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
+static thread_local bool heapManagerBootFlag CALIGN TLSMODEL = false;
+static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
 // declare helper functions for HeapMaster
@@ -569,6 +571,7 @@ static void heapManagerDtor() {
 
 	#ifdef __STATISTICS__
 	heapMaster.stats += heapManager->stats;				// retain this heap's statistics
+	HeapStatisticsCtor( heapManager->stats );			// reset heap counters for next usage
 	heapMaster.threads_exited += 1;
 	#endif // __STATISTICS__
 
@@ -601,7 +604,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
 	#ifdef __STATISTICS__
-	if ( getenv( "LLHEAP_MALLOC_STATS" ) ) {			// check for external printing
+	if ( getenv( "MALLOC_STATS" ) ) {					// check for external printing
 		malloc_stats();
 	} // if
 	#endif // __STATISTICS__
@@ -632,27 +635,27 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 
 #ifdef __STATISTICS__
 #define prtFmt \
-	"\nHeap statistics: (storage request / allocation)\n" \
-	"  malloc    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  aalloc    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  calloc    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  memalign  >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  amemalign >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  cmemalign >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  resize    >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  realloc   >0 calls %'u; 0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  free      !null calls %'u; null/0 calls %'u; storage %'llu / %'llu bytes\n" \
-	"  return    pulls %'u; pushes %'u; storage %'llu / %'llu bytes\n" \
-	"  sbrk      calls %'u; storage %'llu bytes\n" \
-	"  mmap      calls %'u; storage %'llu / %'llu bytes\n" \
-	"  munmap    calls %'u; storage %'llu / %'llu bytes\n" \
-	"  threads   started %'lu; exited %'lu\n" \
-	"  heaps     new %'lu; reused %'lu\n"
+	"\nHeap%s statistics: (storage request / allocation)\n" \
+	"  malloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  aalloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  calloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  memalign  >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  amemalign >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  resize    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  return    pulls %'llu; pushes %'llu; storage %'llu / %'llu bytes\n" \
+	"  sbrk      calls %'llu; storage %'llu bytes\n" \
+	"  mmap      calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  threads   started %'llu; exited %'llu\n" \
+	"  heaps     new %'llu; reused %'llu\n"
 
 // Use "write" because streams may be shutdown when calls are made.
-static int printStats( HeapStatistics & stats ) {		// see malloc_stats
+static int printStats( HeapStatistics & stats, const char * title = "" ) { // see malloc_stats
 	char helpText[sizeof(prtFmt) + 1024];				// space for message and values
-	int len = snprintf( helpText, sizeof(helpText), prtFmt,
+	int len = snprintf( helpText, sizeof(helpText), prtFmt,	title,
 			stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
 			stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
 			stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
@@ -677,21 +680,21 @@ static int printStats( HeapStatistics & stats ) {		// see malloc_stats
 	"<heap nr=\"0\">\n" \
 	"<sizes>\n" \
 	"</sizes>\n" \
-	"<total type=\"malloc\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"aalloc\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"calloc\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"memalign\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"amemalign\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"cmemalign\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"resize\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"realloc\" >0 count=\"%'u;\" 0 count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"free\" !null=\"%'u;\" 0 null/0=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"return\" pulls=\"%'u;\" 0 pushes=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"sbrk\" count=\"%'u;\" size=\"%'llu\"/> bytes\n" \
-	"<total type=\"mmap\" count=\"%'u;\" size=\"%'llu / %'llu\" / > bytes\n" \
-	"<total type=\"munmap\" count=\"%'u;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"threads\" started=\"%'lu;\" exited=\"%'lu\"/>\n" \
-	"<total type=\"heaps\" new=\"%'lu;\" reused=\"%'lu\"/>\n" \
+	"<total type=\"malloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"aalloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"calloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"amemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"cmemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"resize\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"return\" pulls=\"%'llu;\" 0 pushes=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"sbrk\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
+	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu / %'llu\" / > bytes\n" \
+	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"threads\" started=\"%'llu;\" exited=\"%'llu\"/>\n" \
+	"<total type=\"heaps\" new=\"%'llu;\" reused=\"%'llu\"/>\n" \
 	"</malloc>"
 
 static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see malloc_info
@@ -957,32 +960,7 @@ static void * manager_extend( size_t size ) {
 	} /* if */ \
 	assert( heapManager );
 
-#define __NONNULL_0_ALLOC__ /* Uncomment to return non-null address for malloc( 0 ). */
-#ifndef __NONNULL_0_ALLOC__
-#define __NULL_0_ALLOC__( counter, ... ) /* 0 byte allocation returns null pointer */ \
-	if ( UNLIKELY( size == 0 ) ) { \
-		STAT_0_CNT( counter ); \
-		__VA_ARGS__; /* call routine, if specified */ \
-		return nullptr; \
-	} /* if */
-#else
-#define __NULL_0_ALLOC__( counter, ... )
-#endif // __NONNULL_0_ALLOC__
-
-#ifdef __DEBUG__
-#define __OVERFLOW_MALLOC__( ... ) \
-	if ( UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) { /* error check */ \
-		__VA_ARGS__; /* call routine, if specified */ \
-		return nullptr; \
-	} /* if */
-#else
-#define __OVERFLOW_MALLOC__( ... )
-#endif // __DEBUG__
-
-#define PROLOG( counter, ... ) \
-	BOOT_HEAP_MANAGER; \
-	__NULL_0_ALLOC__( counter, __VA_ARGS__ ) \
-	__OVERFLOW_MALLOC__( __VA_ARGS__ )
+//#define __NULL_0_ALLOC__ /* Uncomment to return null address for malloc( 0 ). */
 
 #define SCRUB_SIZE 1024lu
 // Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
@@ -990,7 +968,21 @@ static void * manager_extend( size_t size ) {
 #define SCRUB '\xff'
 
 static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
-	PROLOG( STAT_NAME );
+	BOOT_HEAP_MANAGER;
+
+	#ifdef __NULL_0_ALLOC__
+	if ( UNLIKELY( size == 0 ) ) {
+		STAT_0_CNT( STAT_NAME );
+		return nullptr;
+	} // if
+	#endif // __NULL_0_ALLOC__
+
+	#ifdef __DEBUG__
+	if ( UNLIKELY( size > ULONG_MAX - sizeof(Heap::Storage) ) ) {
+		errno = ENOMEM;
+		return nullptr;
+	} // if
+	#endif // __DEBUG__
 
 	Heap::Storage * block;								// pointer to new block of storage
 
@@ -1000,13 +992,12 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	Heap * heap = heapManager;							// optimization
 
 	#ifdef __STATISTICS__
-	#ifdef __NONNULL_0_ALLOC__
-	if ( UNLIKELY( size == 0 ) )						// malloc( 0 ) ?
+	if ( UNLIKELY( size == 0 ) ) {						// malloc( 0 ) ?
 		heap->stats.counters[STAT_NAME].calls_0 += 1;
-	else
-	#endif // __NONNULL_0_ALLOC__
+	} else {
 		heap->stats.counters[STAT_NAME].calls += 1;
-	heap->stats.counters[STAT_NAME].request += size;
+		heap->stats.counters[STAT_NAME].request += size;
+	} // if
 	#endif // __STATISTICS__
 
 	#ifdef __DEBUG__
@@ -1204,11 +1195,11 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 	// Do not move these up because heap can be null!
 	#ifdef __STATISTICS__
-	#ifdef __NONNULL_0_ALLOC__
+	#ifndef __NULL_0_ALLOC__
 	if ( UNLIKELY( rsize == 0 ) )						// malloc( 0 ) ?
 		heap->stats.free_null_0_calls += 1;
 	else
-	#endif // __NONNULL_0_ALLOC__
+	#endif // __NULL_0_ALLOC__
 		heapManager->stats.free_calls += 1;				// count free amd implicit frees from resize/realloc
 	heap->stats.free_storage_request += rsize;
 	heap->stats.free_storage_alloc += size;
@@ -1318,7 +1309,11 @@ extern "C" {
 			return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) );
 		} // if
 
-		PROLOG( HeapStatistics::RESIZE, doFree( oaddr ) ); // => free( oaddr )
+	  if ( UNLIKELY( size == 0 ) ) {
+			STAT_0_CNT( HeapStatistics::RESIZE );
+			doFree( oaddr );
+			return nullptr;
+		} // if
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
@@ -1353,7 +1348,11 @@ extern "C" {
 		  return doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) );
 		} // if
 
-		PROLOG( HeapStatistics::REALLOC, doFree( oaddr ) ); // => free( oaddr )
+	  if ( UNLIKELY( size == 0 ) ) {
+			STAT_0_CNT( HeapStatistics::REALLOC );
+			doFree( oaddr );
+			return nullptr;
+		} // if
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
@@ -1492,9 +1491,6 @@ extern "C" {
 			return;
 		} // if
 
-		// Do not move this up ...
-		BOOT_HEAP_MANAGER;								// trigger for first heap
-
 		doFree( addr );									// handles heapManager == nullptr
 	} // free
 
@@ -1583,6 +1579,19 @@ extern "C" {
 		#endif // __STATISTICS__
 	} // malloc_stats_fd
 
+	void heap_stats() {
+		#ifdef __STATISTICS__
+		char title[32];
+		snprintf( title, 32, " (%p)", heapManager );	// always puts a null terminator
+		if ( printStats( heapManager->stats, title ) == -1 ) {
+		#else
+		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
+		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
+		#endif // __STATISTICS__
+			abort( "**** Error **** write failed in malloc_stats" );
+		} // if
+	} // heap_stats
+
 
 	// Prints an XML string that describes the current state of the memory-allocation implementation in the caller.
 	// The string is printed on the file stream stream.  The exported string includes information about all arenas (see
@@ -1654,7 +1663,11 @@ void * resize( void * oaddr, size_t nalign, size_t size ) __THROW {
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) );
 	} // if
 
-	PROLOG( HeapStatistics::RESIZE, doFree( oaddr ) );	// => free( oaddr )
+  if ( UNLIKELY( size == 0 ) ) {
+		STAT_0_CNT( HeapStatistics::RESIZE );
+		doFree( oaddr );
+		return nullptr;
+	} // if
 
 	// Attempt to reuse existing alignment.
 	Heap::Storage::Header * header = HeaderAddr( oaddr );
@@ -1703,7 +1716,11 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
 		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) );
 	} // if
 
-	PROLOG( HeapStatistics::REALLOC, doFree( oaddr ) ); // => free( oaddr )
+  if ( UNLIKELY( size == 0 ) ) {
+		STAT_0_CNT( HeapStatistics::REALLOC );
+		doFree( oaddr );
+		return nullptr;
+	} // if
 
 	// Attempt to reuse existing alignment.
 	Heap::Storage::Header * header = HeaderAddr( oaddr );
@@ -1760,5 +1777,5 @@ void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) 
 
 // Local Variables: //
 // tab-width: 4 //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
+// compile-command: "g++-11 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
 // End: //
