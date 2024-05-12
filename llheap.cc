@@ -12,6 +12,15 @@
 #include <sys/mman.h>									// mmap, munmap
 #include <sys/sysinfo.h>								// get_nprocs
 
+#define str(s) #s
+#define xstr(s) str(s)
+#define WARNING( s ) xstr( GCC diagnostic ignored str( -W ## s ) )
+#define NOWARNING( statement, warning ) \
+	_Pragma( "GCC diagnostic push" ) \
+	_Pragma( WARNING( warning ) ) \
+	statement ;	\
+	_Pragma ( "GCC diagnostic pop" )
+
 #define FASTLOOKUP										// use O(1) table lookup from allocation size to bucket size
 #define OWNERSHIP										// return freed memory to owner thread
 #define RETURNSPIN										// toggle spinlock / lockfree queue
@@ -22,15 +31,6 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
-#define str(s) #s
-#define xstr(s) str(s)
-#define WARNING( s ) xstr( GCC diagnostic ignored str( -W ## s ) )
-#define NOWARNING( statement, warning ) \
-	_Pragma( "GCC diagnostic push" ) \
-	_Pragma( WARNING( warning ) ) \
-	statement ;	\
-	_Pragma ( "GCC diagnostic pop" )
-
 #define CACHE_ALIGN 64
 #define CALIGN __attribute__(( aligned(CACHE_ALIGN) ))
 
@@ -40,25 +40,19 @@
 #define TLSMODEL
 #endif // TLS
 
-enum {
-	// The minimum allocation alignment in bytes.
-	__ALIGN__ = __BIGGEST_ALIGNMENT__,
-
-	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
-	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXPANSION__ = 10 * 1024 * 1024,
-
-	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
-	// greater than or equal to this value are mmap from the operating system.
-	__DEFAULT_MMAP_START__ = 512 * 1024 + 1,
-
-	// The default unfreed storage amount in units of bytes. When the uC++ program ends it subtracts this amount from
-	// the malloc/free counter to adjust for storage the program does not free.
-	__DEFAULT_HEAP_UNFREED__ = 0
-}; // enum
+//#define __LL_DEBUG__
+#ifdef __LL_DEBUG__
+#define LLDEBUG( stmt ) stmt
+#else
+#define LLDEBUG( stmt )
+#endif // __U_DEBUG__
 
 
 //######################### Helpers #########################
+
+#ifdef __DEBUG__
+static void backtrace( int start );						// forward
+#endif // __DEBUG__
 
 
 // Called by macro assert in assert.h. Replace to prevent recursive call to malloc.
@@ -81,24 +75,23 @@ static void abort( const char fmt[], ... ) {			// overload real abort
 		vfprintf( stderr, "\n", args );					// g++-10 does not allow nullptr for va_list
 	} // if
 	va_end( args );
+	#ifdef __DEBUG__
+	backtrace( 2 );
+	#endif // __DEBUG__
 	abort();											// call the real abort
 	// CONTROL NEVER REACHES HERE!
 } // abort
 
-//#define __DEBUG_PRT__
-static void debug( const char fmt[], ... ) __attribute__(( format(printf, 1, 2), unused ));
-static void debug( const char fmt[] __attribute__(( unused )), ... ) {
-#ifdef __DEBUG_PRT__
+static void debugprt( const char fmt[], ... ) __attribute__(( format(printf, 1, 2), unused ));
+static void debugprt( const char fmt[] __attribute__(( unused )), ... ) {
 	va_list args;
 	va_start( args, fmt );
 	enum { BufSize = 128 };
 	char buf[BufSize];
 	int len = vsnprintf( buf, BufSize, fmt, args );
-	if ( write( 2, buf, len ) == -1 ) abort( "**** Error **** write failed" );
+	if ( write( STDERR_FILENO, buf, len ) == -1 ) abort( "**** Error **** write failed" );
 	va_end( args );
-#else
-#endif // __DEBUG_PRT__
-} // debug
+} // debugprt
 
 static inline __attribute__((always_inline)) bool Pow2( unsigned long int value ) {
 	// clears all bits below value, rounding value down to the next lower multiple of value
@@ -170,6 +163,75 @@ static inline __attribute__((always_inline)) void spin_release( volatile SpinLoc
 } // spin_unlock
 
 
+//######################### Back Trace #########################
+
+
+// Need to compile wiht -rdynamic to get symbol names in back trace.
+
+#ifdef __DEBUG__
+#include <execinfo.h>									// backtrace, backtrace_symbols
+#include <cxxabi.h>										// __cxa_demangle
+
+static void backtrace( int start ) {
+	enum {
+		Frames = 50,									// maximum number of stack frames
+		Last = 2,										// skip last N stack frames
+	};
+
+	void * array[Frames];
+	size_t size = ::backtrace( array, Frames );
+	char ** messages = ::backtrace_symbols( array, size ); // does not demangle names
+	char helpText[256];
+	int len;
+
+	*index( messages[0], '(' ) = '\0';					// find executable name
+	len = snprintf( helpText, 256, "Stack back trace for: %s\n", messages[0] );
+	debugprt( helpText, len );
+
+	// skip stack frames after (below) main
+	for ( unsigned int i = start; i < size - Last && messages != nullptr; i += 1 ) {
+		char * mangled_name = nullptr, * offset_begin = nullptr, * offset_end = nullptr;
+
+		for ( char * p = messages[i]; *p; ++p ) {		// find parantheses and +offset
+			if ( *p == '(' ) {
+				mangled_name = p;
+			} else if ( *p == '+' ) {
+				offset_begin = p;
+			} else if ( *p == ')' ) {
+				offset_end = p;
+				break;
+			} // if
+		} // for
+
+		// if line contains symbol, attempt to demangle
+		int frameNo = i - start;
+		if ( mangled_name && offset_begin && offset_end && mangled_name < offset_begin ) {
+			*mangled_name++ = '\0';						// delimit strings
+			*offset_begin++ = '\0';
+			*offset_end++ = '\0';
+
+			int status;
+			char * real_name = __cxxabiv1::__cxa_demangle( mangled_name, 0, 0, &status );
+			// bug in __cxa_demangle for single-character lower-case non-mangled names
+			if ( status == 0 ) {						// demangling successful ?
+				len = snprintf( helpText, 256, "(%d) %s %s+%s%s\n",
+								frameNo, messages[i], real_name, offset_begin, offset_end );
+			} else {									// otherwise, output mangled name
+				len = snprintf( helpText, 256, "(%d) %s %s(/*unknown*/)+%s%s\n",
+								frameNo, messages[i], mangled_name, offset_begin, offset_end );
+			} // if
+
+			free( real_name );
+		} else {										// otherwise, print the whole line
+			len = snprintf( helpText, 256, "(%d) %s\n", frameNo, messages[i] );
+		} // if
+		debugprt( helpText, len );
+	} // for
+	free( messages );
+} // backtrace
+#endif // __DEBUG__
+
+
 //####################### Heap Statistics ####################
 
 
@@ -238,6 +300,11 @@ static HeapStatistics & operator+=( HeapStatistics & lhs, const HeapStatistics &
 //####################### Heap Structure ####################
 
 
+enum {
+	// The minimum allocation alignment in bytes.
+	__ALIGN__ = __BIGGEST_ALIGNMENT__,
+}; // enum
+
 struct Heap {
 	struct FreeHeader;									// forward declaration
 
@@ -302,6 +369,19 @@ struct Heap {
 	#endif // __STATISTICS__
 }; // Heap
 
+enum {
+	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
+	// address is extended by the extension amount.
+	__DEFAULT_HEAP_EXPANSION__ = 10 * 1024 * 1024,
+
+	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
+	// greater than or equal to this value are mmap from the operating system.
+	__DEFAULT_MMAP_START__ = 4 * 1024 * 1024, // 512 * 1024,
+
+	// The default unfreed storage amount in units of bytes. When the uC++ program ends it subtracts this amount from
+	// the malloc/free counter to adjust for storage the program does not free.
+	__DEFAULT_HEAP_UNFREED__ = 0
+};
 
 static void heapManagerCtor();
 static void heapManagerDtor();
@@ -439,7 +519,7 @@ void HeapMaster::heapMasterCtor() {
 	#endif // __STATISTICS__
 
 	#ifdef __DEBUG__
-	debug( "MCtor %jd set to zero\n", heapMaster.allocUnfreed );
+	LLDEBUG( debugprt( "MCtor %jd set to zero\n", heapMaster.allocUnfreed ) );
 	heapMaster.allocUnfreed = 0;
 	#endif // __DEBUG__
 
@@ -566,7 +646,7 @@ static void heapManagerDtor() {
 	heapMaster.freeHeapManagersList = heapManager;
 
 	#ifdef __DEBUG__
-	debug( "HDtor %p %jd %jd\n", heapManager, heapManager->allocUnfreed, heapMaster.allocUnfreed );
+	LLDEBUG( debugprt( "HDtor %p %jd %jd\n", heapManager, heapManager->allocUnfreed, heapMaster.allocUnfreed ) );
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
@@ -613,14 +693,14 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	// allocUnfreed is set to 0 when a heap is created and it accumulates any unfreed storage during its multiple thread
 	// usages.  At the end, add up each heap allocUnfreed value across all heaps to get the total unfreed storage.
 	ptrdiff_t allocUnfreed = heapMaster.allocUnfreed;
-	debug( "shutdown1 %jd\n", heapMaster.allocUnfreed );
+	LLDEBUG( debugprt( "shutdown1 %jd\n", heapMaster.allocUnfreed ) );
 	for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager ) {
-		debug( "shutdown2 %p %jd\n", heap, heap->allocUnfreed );
+		LLDEBUG( debugprt( "shutdown2 %p %jd\n", heap, heap->allocUnfreed ) );
 		allocUnfreed += heap->allocUnfreed;
 	} // for
 
 	allocUnfreed -= malloc_unfreed();					// subtract any user specified unfreed storage
-	debug( "shutdown3 %td %zd\n", allocUnfreed, malloc_unfreed() );
+	LLDEBUG( debugprt( "shutdown3 %td %zd\n", allocUnfreed, malloc_unfreed() ) );
 	if ( allocUnfreed > 0 ) {
 		// DO NOT USE STREAMS AS THEY MAY BE UNAVAILABLE AT THIS POINT.
 		char helpText[512];
@@ -795,9 +875,9 @@ static void checkAlign( size_t alignment ) {
 inline __attribute__((always_inline))
 static void checkHeader( bool check, const char name[], void * addr ) {
 	if ( UNLIKELY( check ) ) {							// bad address ?
-		abort( "**** Error **** attempt to %s storage %p with address outside the heap.\n"
+		abort( "**** Error **** attempt to %s storage %p with address outside the heap range %p<->%p.\n"
 			   "Possible cause is duplicate free on same block or overwriting of memory.",
-			   name, addr );
+			   name, addr, heapMaster.heapBegin, heapMaster.heapEnd );
 	} // if
 } // checkHeader
 
@@ -838,7 +918,8 @@ static bool headers( const char name[] __attribute__(( unused )), void * addr, H
 	header = HeaderAddr( addr );
 
 	#ifdef __DEBUG__
-	checkHeader( header < heapMaster.heapBegin, name, addr ); // bad low address ?
+	// Mapped addresses can be any values.
+	if ( LIKELY( ! MmappedBit( header ) ) ) checkHeader( header < heapMaster.heapBegin, name, addr ); // bad low address ?
 	#endif // __DEBUG__
 
 	if ( LIKELY( ! StickyBits( header ) ) ) {			// no sticky bits ?
@@ -1004,7 +1085,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	heap->allocUnfreed += size;
 	#endif // __DEBUG__
 
-	if ( LIKELY( tsize < heapMaster.mmapStart ) ) {		// small size => sbrk
+	if ( LIKELY( size < heapMaster.mmapStart ) ) {		// small size => sbrk
 		Heap::FreeHeader * freeHead =
 			#ifdef FASTLOOKUP
 			LIKELY( tsize < LookupSizes ) ? &(heap->freeLists[lookup[tsize]]) :
@@ -1089,7 +1170,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	assert( ((uintptr_t)addr & (__ALIGN__ - 1)) == 0 ); // minimum alignment ?
 
 	#ifdef __DEBUG__
-	debug( "\tdoMalloc %p %zd %zd %jd\n", heap, size, tsize, heap->allocUnfreed );
+	LLDEBUG( debugprt( "\tdoMalloc %p %zd %zd %jd\n", heap, size, tsize, heap->allocUnfreed ) );
 	#endif // __DEBUG__
 
 	return addr;
@@ -1166,7 +1247,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 				#ifdef __DEBUG__
 				AtomicFetchAdd( heapMaster.allocUnfreed, -rsize );
-				debug( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed );
+				LLDEBUG( debugprt( "\tdoFree2 %zd %zd %jd\n", size, rsize, heapMaster.allocUnfreed ) );
 				#endif // __DEBUG__
 				return;
 			} // if
@@ -1207,7 +1288,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 	#ifdef __DEBUG__
 	heap->allocUnfreed -= rsize;
-	debug( "\tdoFree %p %zd %zd %jd\n", heap, size, rsize, heap->allocUnfreed );
+	LLDEBUG( debugprt( "\tdoFree %p %zd %zd %jd\n", heap, size, rsize, heap->allocUnfreed ) );
 	#endif // __DEBUG__
 } // doFree
 
@@ -1276,7 +1357,7 @@ extern "C" {
 		size_t size = dim * elemSize;
 		char * addr = (char *)doMalloc( size STAT_ARG( HeapStatistics::CALLOC ) );
 
-	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if 0p is returned
+	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
@@ -1379,7 +1460,7 @@ extern "C" {
 		// change size and copy old content to new storage
 
 		void * naddr;
-		if ( UNLIKELY( oalign <= __ALIGN__ ) ) {		// previous request not aligned ?
+		if ( LIKELY( oalign <= __ALIGN__ ) ) {			// previous request not aligned ?
 			naddr = doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
 		} else {
 			naddr = memalignNoStats( oalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
@@ -1423,7 +1504,7 @@ extern "C" {
 		size_t size = dim * elemSize;
 		char * addr = (char *)memalignNoStats( alignment, size STAT_ARG( HeapStatistics::CMEMALIGN ) );
 
-	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if 0p is returned
+	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
@@ -1552,7 +1633,8 @@ extern "C" {
 		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
 		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
 		#endif // __STATISTICS__
-			abort( "**** Error **** write failed in malloc_stats" );
+			if ( errno == EBADF ) return;				// bad file descriptor => cannot print
+			abort( "**** Error **** write failed in malloc_stats %d %s", errno, strerror( errno  ) );
 		} // if
 	} // malloc_stats
 
@@ -1560,11 +1642,6 @@ extern "C" {
 	void malloc_stats_clear() {
 		#ifdef __STATISTICS__
 		clearStats();
-		#else
-		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
-		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
-			abort( "**** Error **** write failed in malloc_stats" );
-		} // if
 		#endif // __STATISTICS__
 	} // malloc_stats_clear
 
@@ -1588,7 +1665,8 @@ extern "C" {
 		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
 		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
 		#endif // __STATISTICS__
-			abort( "**** Error **** write failed in malloc_stats" );
+			if ( errno == EBADF ) return;				// bad file descriptor => cannot print
+			abort( "**** Error **** write failed in heap_stats %d %s", errno, strerror( errno  ) );
 		} // if
 	} // heap_stats
 
