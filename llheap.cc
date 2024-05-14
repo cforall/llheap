@@ -66,6 +66,10 @@ void __assert_fail( const char assertion[], const char file[], unsigned int line
 	// CONTROL NEVER REACHES HERE!
 } // __assert_fail
 
+#ifdef __DEBUG__
+static bool signal_p = false;
+#endif // __DEBUG__
+
 static void abort( const char fmt[], ... ) __attribute__(( format(printf, 1, 2), __nothrow__, __noreturn__ ));
 static void abort( const char fmt[], ... ) {			// overload real abort
 	va_list args;
@@ -76,7 +80,7 @@ static void abort( const char fmt[], ... ) {			// overload real abort
 	} // if
 	va_end( args );
 	#ifdef __DEBUG__
-	backtrace( 2 );
+	backtrace( signal_p ? 4 : 2 );
 	#endif // __DEBUG__
 	abort();											// call the real abort
 	// CONTROL NEVER REACHES HERE!
@@ -145,7 +149,8 @@ static size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim 
 
 typedef volatile uintptr_t SpinLock_t;
 
-static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLock_t * lock ) {
+inline __attribute__((always_inline))
+static void spin_acquire( volatile SpinLock_t * lock ) {
 	enum { SPIN_START = 4, SPIN_END = 64 * 1024, };
 	unsigned int spin = SPIN_START;
 
@@ -158,7 +163,8 @@ static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLoc
 	} // for
 } // spin_lock
 
-static inline __attribute__((always_inline)) void spin_release( volatile SpinLock_t * lock ) {
+inline __attribute__((always_inline))
+static void spin_release( volatile SpinLock_t * lock ) {
 	__atomic_clear( lock, __ATOMIC_RELEASE );			// Fence
 } // spin_unlock
 
@@ -229,6 +235,65 @@ static void backtrace( int start ) {
 	} // for
 	free( messages );
 } // backtrace
+#endif // __DEBUG__
+
+
+//####################### SIGSEGV/SIGBUS ####################
+
+
+#ifdef __DEBUG__
+#include <signal.h>										// get_nprocs
+
+#define __SIGCXT__ ucontext_t *
+#define __SIGPARMS__ int sig __attribute__(( unused )), siginfo_t * sfp __attribute__(( unused )), __SIGCXT__ cxt __attribute__(( unused ))
+
+static void signal( int sig, void (*handler)(__SIGPARMS__), int flags ) { // name clash with uSignal statement
+	struct sigaction act;
+
+	act.sa_sigaction = (void (*)(int, siginfo_t *, void *))handler;
+	sigemptyset( &act.sa_mask );
+	sigaddset( &act.sa_mask, SIGALRM );					// disabled during signal handler
+	sigaddset( &act.sa_mask, SIGUSR1 );
+	sigaddset( &act.sa_mask, SIGSEGV );
+	sigaddset( &act.sa_mask, SIGBUS );
+	sigaddset( &act.sa_mask, SIGILL );
+	sigaddset( &act.sa_mask, SIGFPE );
+	sigaddset( &act.sa_mask, SIGHUP );					// revert to default on second delivery
+	sigaddset( &act.sa_mask, SIGTERM );
+	sigaddset( &act.sa_mask, SIGINT );
+
+	act.sa_flags = flags;
+
+	if ( sigaction( sig, &act, nullptr ) == -1 ) {
+		char helpText[256];
+		int len = snprintf( helpText, 256, "signal( sig:%d, handler:%p, flags:%d ), problem installing signal handler, error(%d) %s.\n",
+							sig, handler, flags, errno, strerror( errno ) );
+		if ( write( STDERR_FILENO, helpText, len ) ) {
+			_exit( EXIT_FAILURE );
+		} // if
+	} // signal
+}
+
+static void sigSegvBusHandler( __SIGPARMS__ ) {
+	signal_p = true;
+	if ( sfp->si_addr == nullptr ) {
+		abort( "Null pointer (nullptr) dereference." );
+	} else if ( sfp->si_addr ==
+#if __WORDSIZE == 32
+				(void *)0xffff'ffff
+#else
+				(void *)0xffff'ffff'ffff'ffff
+#endif // __WORDSIZE == 32
+		) {
+		abort( "Using a scrubbed pointer address %p.\n"
+			   "Possible cause is using uninitialized storage or using storage after it has been freed.",
+			   sfp->si_addr );
+	} else {
+		abort( "%s at memory location %p.\n"
+			   "Possible cause is reading outside the address space or writing to a protected area within the address space with an invalid pointer or subscript.",
+			   (sig == SIGSEGV ? "Segment fault" : "Bus error"), sfp->si_addr );
+	} // if
+} // sigSegvBusHandler
 #endif // __DEBUG__
 
 
@@ -521,6 +586,8 @@ void HeapMaster::heapMasterCtor() {
 	#ifdef __DEBUG__
 	LLDEBUG( debugprt( "MCtor %jd set to zero\n", heapMaster.allocUnfreed ) );
 	heapMaster.allocUnfreed = 0;
+	signal( SIGSEGV, sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Invalid memory reference (default: Core)
+	signal( SIGBUS,  sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Bus error, bad memory access (default: Core)
 	#endif // __DEBUG__
 
 	#ifdef FASTLOOKUP
@@ -1177,7 +1244,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 } // doMalloc
 
 
-static inline __attribute__((always_inline)) void doFree( void * addr ) {
+inline __attribute__((always_inline))
+static void doFree( void * addr ) {
 	assert( addr );
 	Heap * heap = heapManager;							// optimization
 
@@ -1293,7 +1361,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 } // doFree
 
 
-static inline __attribute__((always_inline)) void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
+inline __attribute__((always_inline))
+static void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
 	checkAlign( alignment );							// check alignment
 
 	// if alignment <= default alignment or size == 0, do normal malloc as two headers are unnecessary
@@ -1359,18 +1428,11 @@ extern "C" {
 
 	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
 
-		Heap::Storage::Header * header;
-		Heap::FreeHeader * freeHead;
-		size_t bsize, alignment;
-
-		#ifndef __DEBUG__
-		bool mapped =
-		#endif // __DEBUG__
-			headers( "calloc", addr, header, freeHead, bsize, alignment );
+		Heap::Storage::Header * header = HeaderAddr( addr ); // optimization
 
 		#ifndef __DEBUG__
 		// Mapped storage is zero filled, but in debug mode mapped memory is scrubbed in doMalloc, so it has to be reset to zero.
-		if ( LIKELY( ! mapped ) )
+		if ( LIKELY( ! MmappedBit( header ) ) )
 		#endif // __DEBUG__
 			// <-------0000000000000000000000000000UUUUUUUUUUUUUUUUUUUUUUUUU> bsize (bucket size) U => undefined
 			// `-header`-addr                      `-size
@@ -1466,7 +1528,10 @@ extern "C" {
 			naddr = memalignNoStats( oalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 		} // if
 
-		headers( "realloc", naddr, header, freeHead, bsize, oalign );
+		header = HeaderAddr( naddr );					// new header
+		size_t alignment;
+		fakeHeader( header, alignment );				// could have a fake header
+
 		// To preserve prior fill, the entire bucket must be copied versus the size.
 		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
 		doFree( oaddr );								// free previous storage
@@ -1506,24 +1571,18 @@ extern "C" {
 
 	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
 
-		Heap::Storage::Header * header;
-		Heap::FreeHeader * freeHead;
-		size_t bsize;
+		Heap::Storage::Header * header = HeaderAddr( addr ); // optimization
+		fakeHeader( header, alignment );				// must have a fake header
 
 		#ifndef __DEBUG__
-		bool mapped =
-		#endif // __DEBUG__
-			headers( "cmemalign", addr, header, freeHead, bsize, alignment );
-
 		// Mapped storage is zero filled, but in debug mode mapped memory is scrubbed in doMalloc, so it has to be reset to zero.
-		#ifndef __DEBUG__
-		if ( LIKELY( ! mapped ) )
+		if ( LIKELY( ! MmappedBit( header ) ) )
 		#endif // __DEBUG__
 			// <-------0000000000000000000000000000UUUUUUUUUUUUUUUUUUUUUUUUU> bsize (bucket size) U => undefined
 			// `-header`-addr                      `-size
 			memset( addr, '\0', size );					// set to zeros
 
-		MarkZeroFilledBit( header );					// mark as zero filled
+		MarkZeroFilledBit( header );					// mark as zero fill
 		return addr;
 	} // cmemalign
 
@@ -1804,6 +1863,7 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
 	Heap::Storage::Header * header = HeaderAddr( oaddr );
 	bool isFakeHeader = AlignmentBit( header );			// old fake header ?
 	size_t oalign;
+
 	if ( UNLIKELY( isFakeHeader ) ) {
 		checkAlign( nalign );							// check alignment
 		oalign = ClearAlignmentBit( header );			// old alignment
@@ -1830,7 +1890,10 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
 
 	void * naddr = memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 
-	headers( "realloc", naddr, header, freeHead, bsize, oalign );
+	header = HeaderAddr( naddr );						// new header
+	size_t alignment;
+	fakeHeader( header, alignment );					// could have a fake header
+//	headers( "realloc", naddr, header, freeHead, bsize, oalign );
 	memcpy( naddr, oaddr, Min( osize, size ) );			// copy bytes
 	doFree( oaddr );									// free previous storage
 
