@@ -524,5 +524,5 @@ int main( int argc, char *argv[] ) {
 
 // Local Variables: //
 // tab-width: 4 //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` testllheap.cc libllheap.o -lpthread-Wl,-rpath=/u/pabuhr/software/llheap" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` testllheap.cc libllheap.o -lpthread -Wl,-rpath=/u/pabuhr/software/llheap" //
 // End: //
