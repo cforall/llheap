@@ -48,20 +48,25 @@
 #endif // __U_DEBUG__
 
 
+// The return code from "write" is ignored. Basically, if write fails, trying to write out why it failed will likely
+// fail, too, so just continue.
+
+
 //######################### Helpers #########################
 
 #ifdef __DEBUG__
 static void backtrace( int start );						// forward
 #endif // __DEBUG__
 
+enum { BufSize = 1024 };
 
 // Called by macro assert in assert.h. Replace to prevent recursive call to malloc.
 void __assert_fail( const char assertion[], const char file[], unsigned int line, const char function[] ) {
 	extern const char * __progname;						// global name of running executable (argv[0])
-	char helpText[1024];
+	char helpText[BufSize];
 	int len = snprintf( helpText, sizeof(helpText), "Internal assertion error \"%s\" from program \"%s\" in \"%s\" at line %d in file \"%s.\n",
 						assertion, __progname, function, line, file );
-	if ( write( STDERR_FILENO, helpText, len ) == -1 ) {} // fallthrough
+	int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 	abort();
 	// CONTROL NEVER REACHES HERE!
 } // __assert_fail
@@ -74,9 +79,11 @@ static void abort( const char fmt[], ... ) __attribute__(( format(printf, 1, 2),
 static void abort( const char fmt[], ... ) {			// overload real abort
 	va_list args;
 	va_start( args, fmt );
-	vfprintf( stderr, fmt, args );
+	char buf[BufSize];
+	int len = vsnprintf( buf, BufSize, fmt, args );
+	int unused __attribute__(( unused )) = write( STDERR_FILENO, buf, len ); // file might be closed
 	if ( fmt[strlen( fmt ) - 1] != '\n' ) {				// add optional newline if missing at the end of the format text
-		vfprintf( stderr, "\n", args );					// g++-10 does not allow nullptr for va_list
+		int unused __attribute__(( unused )) = write( STDERR_FILENO, "\n", 1 ); // file might be closed
 	} // if
 	va_end( args );
 	#ifdef __DEBUG__
@@ -90,10 +97,9 @@ static void debugprt( const char fmt[], ... ) __attribute__(( format(printf, 1, 
 static void debugprt( const char fmt[] __attribute__(( unused )), ... ) {
 	va_list args;
 	va_start( args, fmt );
-	enum { BufSize = 128 };
 	char buf[BufSize];
 	int len = vsnprintf( buf, BufSize, fmt, args );
-	if ( write( STDERR_FILENO, buf, len ) == -1 ) abort( "**** Error **** write failed" );
+	int unused __attribute__(( unused )) = write( STDERR_FILENO, buf, len ); // file might be closed
 	va_end( args );
 } // debugprt
 
@@ -770,11 +776,11 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	LLDEBUG( debugprt( "shutdown3 %td %zd\n", allocUnfreed, malloc_unfreed() ) );
 	if ( allocUnfreed > 0 ) {
 		// DO NOT USE STREAMS AS THEY MAY BE UNAVAILABLE AT THIS POINT.
-		char helpText[512];
+		char helpText[BufSize];
 		int len = snprintf( helpText, sizeof(helpText), "**** Warning **** (UNIX pid:%ld) : program terminating with %td(%#tx) bytes of storage allocated but not freed.\n"
 							"Possible cause is unfreed storage allocated by the program or system/library routines called from the program.\n",
 							(long int)getpid(), allocUnfreed, allocUnfreed ); // always print the UNIX pid
-		if ( write( STDERR_FILENO, helpText, len ) == -1 ) abort( "**** Error **** write error in shutdown" );
+		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 	} // if
 	#endif // __DEBUG__
 } // shutdown
@@ -1303,7 +1309,7 @@ static void doFree( void * addr ) {
 			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap.Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
 			#endif // RETURNSPIN
-		
+
 			if ( UNLIKELY( heap == nullptr ) ) {
 				// Use master heap counters as heap is reused by this point.
 				#ifdef __STATISTICS__
@@ -1687,14 +1693,11 @@ extern "C" {
 		#ifdef __STATISTICS__
 		HeapStatistics stats;
 		HeapStatisticsCtor( stats );
-		if ( printStats( collectStats( stats ) ) == -1 ) {
+		int unused __attribute__(( unused )) = printStats( collectStats( stats ) );	// file might be closed
 		#else
 		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
-		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
+		int unused __attribute__(( unused )) = write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ); // file might be closed
 		#endif // __STATISTICS__
-			if ( errno == EBADF ) return;				// bad file descriptor => cannot print
-			abort( "**** Error **** write failed in malloc_stats %d %s", errno, strerror( errno  ) );
-		} // if
 	} // malloc_stats
 
 	// Zero the heap master and all active thread heaps.
@@ -1719,14 +1722,11 @@ extern "C" {
 		#ifdef __STATISTICS__
 		char title[32];
 		snprintf( title, 32, " (%p)", heapManager );	// always puts a null terminator
-		if ( printStats( heapManager->stats, title ) == -1 ) {
+		int unused __attribute__(( unused )) = printStats( heapManager->stats, title );	// file might be closed
 		#else
 		#define MALLOC_STATS_MSG "malloc_stats statistics disabled.\n"
-		if ( write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ) == -1 ) {
+		int unused __attribute__(( unused )) = write( STDERR_FILENO, MALLOC_STATS_MSG, sizeof( MALLOC_STATS_MSG ) - 1 /* size includes '\0' */ ); // file might be closed
 		#endif // __STATISTICS__
-			if ( errno == EBADF ) return;				// bad file descriptor => cannot print
-			abort( "**** Error **** write failed in heap_stats %d %s", errno, strerror( errno  ) );
-		} // if
 	} // heap_stats
 
 
@@ -1893,7 +1893,7 @@ void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
 	header = HeaderAddr( naddr );						// new header
 	size_t alignment;
 	fakeHeader( header, alignment );					// could have a fake header
-//	headers( "realloc", naddr, header, freeHead, bsize, oalign );
+
 	memcpy( naddr, oaddr, Min( osize, size ) );			// copy bytes
 	doFree( oaddr );									// free previous storage
 
