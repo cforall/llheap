@@ -416,6 +416,9 @@ struct Heap {
 		Storage * freeList;								// thread free list
 		Heap * homeManager;								// heap owner (free storage to bucket, from bucket to heap)
 		size_t blockSize;								// size of allocations on this list
+		#if defined( __STATISTICS__ )
+		size_t allocations, reuses;
+		#endif // __STATISTICS__
 	}; // FreeHeader
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
@@ -443,13 +446,13 @@ struct Heap {
 enum {
 	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXPANSION__ = 10 * 1024 * 1024,
+	__DEFAULT_HEAP_EXPANSION__ = 8 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
-	__DEFAULT_MMAP_START__ = 4 * 1024 * 1024, // 512 * 1024,
+	__DEFAULT_MMAP_START__ = 512 * 1024,
 
-	// The default unfreed storage amount in units of bytes. When the uC++ program ends it subtracts this amount from
+	// The default unfreed storage amount in units of bytes. When the program ends it subtracts this amount from
 	// the malloc/free counter to adjust for storage the program does not free.
 	__DEFAULT_HEAP_UNFREED__ = 0
 };
@@ -474,7 +477,7 @@ namespace {												// hide static members
 		size_t pageSize;								// architecture pagesize
 		size_t heapExpand;								// sbrk advance
 		size_t mmapStart;								// cross over point for mmap
-		unsigned int maxBucketsUsed;					// maximum number of buckets in use
+		size_t maxBucketsUsed;							// maximum number of buckets in use
 
 		Heap * heapManagersList;						// heap-list head
 		Heap * freeHeapManagersList;					// free-list head
@@ -489,6 +492,7 @@ namespace {												// hide static members
 
 		#ifdef __STATISTICS__
 		HeapStatistics stats;							// global stats for thread-local heaps to add there counters when exiting
+		unsigned long long int nremainder, remainder;	// counts mostly unusable storage at the end of a thread's reserve block
 		unsigned long long int threads_started, threads_exited; // counts threads that have started and exited
 		unsigned long long int reused_heap, new_heap;	// counts reusability of heaps
 		unsigned long long int sbrk_calls;
@@ -583,6 +587,7 @@ void HeapMaster::heapMasterCtor() {
 
 	#ifdef __STATISTICS__
 	HeapStatisticsCtor( heapMaster.stats );				// clear statistic counters
+	heapMaster.nremainder = heapMaster.remainder = 0;
 	heapMaster.threads_started = heapMaster.threads_exited = 0;
 	heapMaster.reused_heap = heapMaster.new_heap = 0;
 	heapMaster.sbrk_calls = heapMaster.sbrk_storage = 0;
@@ -664,6 +669,9 @@ Heap * HeapMaster::getHeap() {
 				.freeList = nullptr,
 				.homeManager = heap,
 				.blockSize = bucketSizes[j],
+				#if defined( __STATISTICS__ )
+				.allocations = 0, .reuses = 0,
+				#endif // __STATISTICS__
 			};
 		} // for
 
@@ -759,6 +767,27 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	#ifdef __STATISTICS__
 	if ( getenv( "MALLOC_STATS" ) ) {					// check for external printing
 		malloc_stats();
+
+		char helpText[64];
+		int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket size / allocations / reuses)\n" );
+		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
+
+		size_t th = 0;
+		for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
+			enum { Columns = 8 };
+			len = snprintf( helpText, sizeof(helpText), "Heap %zd\n", th );
+			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+			for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
+				if ( heap->freeLists[b].allocations != 0 ) {
+					len = snprintf( helpText, sizeof(helpText), "%zd %zd %zd, ",
+									heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
+					unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+					if ( ++c % Columns == 0 )
+						unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
+				} // if
+			} // for
+			unused = write( STDERR_FILENO, "\n", 1 );	// file might be closed
+		} // for
 	} // if
 	#endif // __STATISTICS__
 
@@ -788,7 +817,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 
 #ifdef __STATISTICS__
 #define prtFmt \
-	"\nHeap%s statistics: (storage request / allocation)\n" \
+	"\nPID: %d Heap%s statistics: (storage request / allocation)\n" \
 	"  malloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  aalloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  calloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
@@ -802,13 +831,14 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
 	"  mmap      calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  remainder calls %'llu; storage %'llu\n" \
 	"  threads   started %'llu; exited %'llu\n" \
 	"  heaps     new %'llu; reused %'llu\n"
 
 // Use "write" because streams may be shutdown when calls are made.
 static int printStats( HeapStatistics & stats, const char * title = "" ) { // see malloc_stats
 	char helpText[sizeof(prtFmt) + 1024];				// space for message and values
-	int len = snprintf( helpText, sizeof(helpText), prtFmt,	title,
+	int len = snprintf( helpText, sizeof(helpText), prtFmt,	getpid(), title,
 			stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
 			stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
 			stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
@@ -822,6 +852,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
+			heapMaster.nremainder, heapMaster.remainder,
 			heapMaster.threads_started, heapMaster.threads_exited,
 			heapMaster.new_heap, heapMaster.reused_heap
 		);
@@ -1062,34 +1093,46 @@ static void * manager_extend( size_t size ) {
 	ptrdiff_t rem = heapManager->heapReserve - size;
 
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
-		// If the size requested is bigger than the current remaining reserve, use the current reserve to populate
-		// smaller freeLists, and increase the reserve.
+		// If the size requested is bigger than the current remaining reserve, so increase the reserve.
+		size_t increase = Ceiling( size > ( heapMaster.heapExpand / 10 ) ? size : ( heapMaster.heapExpand / 10 ), __ALIGN__ );
+		void * block = master_extend( increase );
 
-		rem = heapManager->heapReserve;					// positive
+		// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
+		// For sequential programs, this check is always true.
+		if ( block != (char *)heapManager->heapBuffer + heapManager->heapReserve ) {
 
-		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
-			Heap::FreeHeader * freeHead =
-			#ifdef FASTLOOKUP
-				rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
-			#endif // FASTLOOKUP
-				&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
+			// Otherwise, find the closest bucket size to the remaining storage in the reserve block and chain it onto
+			// that free list. Distributing the storage across multiple free lists is an option but takes time.
+			rem = heapManager->heapReserve;				// positive
 
-			// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
-			// bucket size in this case.
-			if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
-			Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
+			if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
+				#ifdef __STATISTICS__
+				heapMaster.nremainder += 1;
+				heapMaster.remainder += rem;
+				#endif // __STATISTICS__
 
-			block->header.kind.real.next = freeHead->freeList; // push on stack
-			freeHead->freeList = block;
+				Heap::FreeHeader * freeHead =
+				#ifdef FASTLOOKUP
+					rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
+				#endif // FASTLOOKUP
+					&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
+
+				// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
+				// bucket size in this case.
+				if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
+				Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
+
+				block->header.kind.real.next = freeHead->freeList; // push on stack
+				freeHead->freeList = block;
+			} // if
 		} // if
 
-		size_t increase = Ceiling( size > ( heapMaster.heapExpand / 10 ) ? size : ( heapMaster.heapExpand / 10 ), __ALIGN__ );
-		heapManager->heapBuffer = master_extend( increase );
+		heapManager->heapBuffer = block;
 		rem = increase - size;
 	} // if
 
-	Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
 	heapManager->heapReserve = rem;
+	Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
 	heapManager->heapBuffer = (char *)heapManager->heapBuffer + size;
 
 	return block;
@@ -1121,7 +1164,8 @@ static void * manager_extend( size_t size ) {
 // pointer in the interrupt frame.
 #define SCRUB '\xff'
 
-static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
+inline __attribute__((always_inline))
+static void * doMalloc( size_t size STAT_PARM ) {
 	BOOT_HEAP_MANAGER;
 
 	#ifdef __NULL_0_ALLOC__
@@ -1205,9 +1249,17 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			#ifdef OWNERSHIP
 			} // if
 			#endif // OWNERSHIP
+
+			#if defined( __STATISTICS__ )
+			freeHead->allocations += 1;
+			#endif // __STATISTICS__
 		} else {
 			// Memory is scrubbed in doFree.
 			freeHead->freeList = block->header.kind.real.next;
+
+			#if defined( __STATISTICS__ )
+			freeHead->reuses += 1;
+			#endif // __STATISTICS__
 		} // if
 
 		block->header.kind.real.home = freeHead;		// pointer back to free list of apropriate size
