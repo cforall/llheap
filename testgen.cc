@@ -171,7 +171,7 @@ void * worker( void * ) {
 
 #if 1
 	// mmap storage
-	enum { TIMES2 = TIMES / 1000, FIXED2= 4 * 1024 * 1024 };
+	enum { TIMES2 = TIMES / 1000, FIXED2= 1 * 1024 * 1024 };
 	// Default allocator does not support malloc_mmap_start => hand code
 	// const int FIXED2 = malloc_mmap_start();				// force mmapping of allocations
 
