@@ -9,6 +9,7 @@ using namespace std;
 #include <pthread.h>
 #include "affinity.h"
 
+extern "C" size_t malloc_mmap_start() { return 512 * 1024; } // smaller mmap crossover
 extern "C" size_t malloc_unfreed() { return 5979; }		// printf(1024)/setlocale(4043)/pthread(3*304)
 
 timespec currTime() {
@@ -171,7 +172,7 @@ void * worker( void * ) {
 
 #if 1
 	// mmap storage
-	enum { TIMES2 = TIMES / 1000, FIXED2= 1 * 1024 * 1024 };
+	enum { TIMES2 = TIMES / 1000, FIXED2 = 1 * 1024 * 1024 };
 	// Default allocator does not support malloc_mmap_start => hand code
 	// const int FIXED2 = malloc_mmap_start();				// force mmapping of allocations
 
@@ -278,7 +279,7 @@ int main( int argc, char * argv[] ) {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libhThread.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
+// g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
 
 // Local Variables: //
 // compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libllheap.o -lpthread" //
