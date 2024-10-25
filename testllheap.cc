@@ -336,7 +336,7 @@ void * worker( void * ) {
 
 		// Do not start this loop index at 0 because resize of 0 bytes frees the storage.
 		for ( int s = amount; s < 256 * 1024; s += 1 ) { // start at initial memory request
-			area = (char *)resize( area, a * 2, s );	// attempt to reuse storage
+			area = (char *)aligned_resize( area, a * 2, s ); // attempt to reuse storage
 			//sout | i | area | endl;
 			if ( (size_t)area % a * 2 != 0 ) {			// check for initial alignment
 				abort( "memalign/resize with align/free bad alignment %p", area );
@@ -435,7 +435,7 @@ void * worker( void * ) {
 		// Do not start this loop index at 0 because realloc of 0 bytes frees the storage.
 		for ( int s = amount; s < 256 * 1024; s += 1 ) { // start at initial memory request
 			if ( area[0] != '\345' || area[s - 2] != '\345' ) abort( "memalign/realloc/free corrupt storage" );
-			area = (char *)realloc( area, a * 2, s );	// attempt to reuse storage
+			area = (char *)aligned_realloc( area, a * 2, s ); // attempt to reuse storage
 			//cout << setw(6) << i << " " << area << endl;
 			if ( (size_t)area % a * 2 != 0 ) {			// check for initial alignment
 				abort( "memalign/realloc with align/free bad alignment %p", area );
@@ -463,7 +463,7 @@ void * worker( void * ) {
 		// Do not start this loop index at 0 because realloc of 0 bytes frees the storage.
 		for ( int s = amount; s < 256 * 1024; s += 1 ) { // start at initial memory request
 			if ( area[0] != '\345' || area[s - 2] != '\345' ) abort( "cmemalign/realloc with align/free corrupt storage2" );
-			area = (char *)realloc( area, a * 2, s );	// attempt to reuse storage
+			area = (char *)aligned_realloc( area, a * 2, s );						// attempt to reuse storage
 			//cout << setw(6) << i << " " << area << endl;
 			if ( (size_t)area % a * 2 != 0 || malloc_alignment( area ) != a * 2 ) { // check for initial alignment
 				abort( "cmemalign/realloc with align/free bad alignment %p %zd %zd", area, malloc_alignment( area ), a * 2 );
