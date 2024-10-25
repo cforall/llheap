@@ -58,7 +58,7 @@
 enum { BufSize = 1024 };
 
 // Called by macro assert in assert.h. Replace to prevent recursive call to malloc.
-void __assert_fail( const char assertion[], const char file[], unsigned int line, const char function[] ) {
+extern "C" void __assert_fail( const char assertion[], const char file[], unsigned int line, const char function[] ) {
 	extern const char * __progname;						// global name of running executable (argv[0])
 	char helpText[BufSize];
 	int len = snprintf( helpText, sizeof(helpText), "Internal assertion error \"%s\" from program \"%s\" in \"%s\" at line %d in file \"%s.\n",
@@ -106,16 +106,16 @@ static inline __attribute__((always_inline)) bool Pow2( unsigned long int value 
 	return (value & (value - 1)) == 0;
 } // Pow2
 
-static inline __attribute__((always_inline)) unsigned long int Floor( unsigned long int value, unsigned long int align ) {
-	assert( Pow2( align ) );
-	// clears all bits above or equal to align, getting (value % align), the phase of value with regards to align
-	return value & -align;
+static inline __attribute__((always_inline)) unsigned long int Floor( unsigned long int value, unsigned long int alignment ) {
+	assert( Pow2( alignment ) );
+	// clears all bits above or equal to alignment, getting (value % alignment), the phase of value with regards to alignment
+	return value & -alignment;
 } // Floor
 
-static inline __attribute__((always_inline)) unsigned long int Ceiling( unsigned long int value, unsigned long int align ) {
-	assert( Pow2( align ) );
+static inline __attribute__((always_inline)) unsigned long int Ceiling( unsigned long int value, unsigned long int alignment ) {
+	assert( Pow2( alignment ) );
 	// "negate, round down, negate" is the same as round up
-	return -Floor( -value, align );
+	return -Floor( -value, alignment );
 } // Ceiling
 
 template< typename T > static inline __attribute__((always_inline)) T AtomicFetchAdd( volatile T & counter, int increment ) {
@@ -127,8 +127,8 @@ template< typename T > static inline __attribute__((always_inline)) T AtomicFetc
 
 #define Min( x, y ) (x < y ? x : y)
 
-static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dim ) {
-	size_t l = 0, m, h = dim;
+static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, const unsigned int vals[], size_t dimension ) {
+	size_t l = 0, m, h = dimension;
 	while ( l < h ) {
 		m = (l + h) / 2;
 		if ( (unsigned int &)(vals[m]) < key ) {		// cast away const
@@ -448,7 +448,7 @@ struct Heap {
 //   bit2 => mapped allocation versus sbrk
 #define StickyBits( header ) (((header)->kind.real.blockSize & 0x7))
 #define ClearStickyBits( addr ) (decltype(addr))((uintptr_t)(addr) & ~7)
-#define MarkAlignmentBit( align ) ((align) | 1)
+#define MarkAlignmentBit( alignment ) ((alignment) | 1)
 #define AlignmentBit( header ) ((((header)->kind.fake.alignment) & 1))
 #define ClearAlignmentBit( header ) (((header)->kind.fake.alignment) & ~1)
 #define ZeroFillBit( header ) ((((header)->kind.real.blockSize) & 2))
@@ -569,7 +569,7 @@ static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // pr
 
 
 // declare helper functions for HeapMaster
-void noMemory();										// forward, called by "builtin_new" when malloc returns 0
+extern "C" void noMemory( void );						// forward, called by "builtin_new" when malloc returns 0
 
 
 void HeapMaster::heapMasterCtor() {
@@ -649,8 +649,8 @@ Heap * HeapMaster::getHeap() {
 		size_t remaining = heapMaster.heapManagersStorageEnd - heapMaster.heapManagersStorage; // remaining free heaps in superblock
 		if ( ! heapMaster.heapManagersStorage || remaining == 0 ) {
 			// Each block of heaps is a multiple of the number of cores on the computer.
-			int HeapDim = get_nprocs();					// get_nprocs_conf does not work
-			size_t size = HeapDim * sizeof( Heap );
+			int dimension = get_nprocs();				// get_nprocs_conf does not work
+			size_t size = dimension * sizeof( Heap );
 
 			heapMaster.heapManagersStorage = (Heap *)mmap( 0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 			if ( UNLIKELY( heapMaster.heapManagersStorage == MAP_FAILED ) ) { // failed ?
@@ -658,7 +658,7 @@ Heap * HeapMaster::getHeap() {
 				// Do not call strerror( errno ) as it may call malloc.
 				abort( "**** Error **** attempt to allocate block of heaps of size %zu bytes and mmap failed with errno %d.", size, errno );
 			} // if
-			heapMaster.heapManagersStorageEnd = &heapMaster.heapManagersStorage[HeapDim]; // outside array
+			heapMaster.heapManagersStorageEnd = &heapMaster.heapManagersStorage[dimension]; // outside array
 		} // if
 
 		heap = heapMaster.heapManagersStorage;
@@ -956,7 +956,7 @@ static void clearStats() {
 #endif // __STATISTICS__
 
 
-void noMemory() {
+extern "C" void noMemory( void ) {
 	abort( "**** Error **** heap memory exhausted at %zu bytes.\n"
 		   "Possible cause is very large memory allocation and/or large amount of unfreed storage allocated by the program or system/library routines.",
 		   ((char *)(sbrk( 0 )) - (char *)(heapMaster.heapBegin)) );
@@ -979,7 +979,7 @@ static inline __attribute__((always_inline)) bool setMmapStart( size_t value ) {
 // <-------+----------------------------------------------------> bsize (bucket size)
 // |header |addr
 //==================================================================================
-//                   align/offset |
+//               alignment/offset |
 // <-----------------<------------+-----------------------------> bsize (bucket size)
 //                   |fake-header | addr
 #define HeaderAddr( addr ) ((Heap::Storage::Header *)( (char *)addr - sizeof(Heap::Storage) ))
@@ -988,7 +988,7 @@ static inline __attribute__((always_inline)) bool setMmapStart( size_t value ) {
 // <-------<<--------------------- dsize ---------------------->> bsize (bucket size)
 // |header |addr
 //==================================================================================
-//                   align/offset |
+//               alignment/offset |
 // <------------------------------<<---------- dsize --------->>> bsize (bucket size)
 //                   |fake-header |addr
 #define DataStorage( bsize, addr, header ) (bsize - ( (char *)addr - (char *)header ))
@@ -1476,15 +1476,15 @@ extern "C" {
 	} // malloc
 
 
-	// Same as malloc() except size bytes is an array of dim elements each of elemSize bytes.
-	void * aalloc( size_t dim, size_t elemSize ) {
-		return doMalloc( dim * elemSize STAT_ARG( HeapStatistics::AALLOC ) );
+	// Same as malloc() except size bytes is an array of dimension elements each of elemSize bytes.
+	void * aalloc( size_t dimension, size_t elemSize ) {
+		return doMalloc( dimension * elemSize STAT_ARG( HeapStatistics::AALLOC ) );
 	} // aalloc
 
 
 	// Same as aalloc() with memory set to zero.
-	void * calloc( size_t dim, size_t elemSize ) {
-		size_t size = dim * elemSize;
+	void * calloc( size_t dimension, size_t elemSize ) {
+		size_t size = dimension * elemSize;
 		char * addr = (char *)doMalloc( size STAT_ARG( HeapStatistics::CALLOC ) );
 
 	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
@@ -1521,12 +1521,12 @@ extern "C" {
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
-		size_t bsize, oalign;
-		headers( "resize", oaddr, header, freeHead, bsize, oalign );
+		size_t bsize, oalignment;
+		headers( "resize", oaddr, header, freeHead, bsize, oalignment );
 
 		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
 		// same size, DO NOT PRESERVE STICKY PROPERTIES.
-		if ( oalign == __ALIGN__ && size <= odsize && odsize <= size * 2 ) { // allow 50% wasted storage for smaller size
+		if ( oalignment == __ALIGN__ && size <= odsize && odsize <= size * 2 ) { // allow 50% wasted storage for smaller size
 			ClearZeroFillBit( header );					// no alignment and turn off 0 fill
 			#ifdef __DEBUG__
 			heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
@@ -1560,8 +1560,8 @@ extern "C" {
 
 		Heap::Storage::Header * header;
 		Heap::FreeHeader * freeHead;
-		size_t bsize, oalign;
-		headers( "realloc", oaddr, header, freeHead, bsize, oalign );
+		size_t bsize, oalignment;
+		headers( "realloc", oaddr, header, freeHead, bsize, oalignment );
 
 		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
 		size_t osize = header->kind.real.size;			// old allocation size
@@ -1591,13 +1591,13 @@ extern "C" {
 		#endif // __STATISTICS__
 
 		void * naddr;
-		if ( LIKELY( oalign <= __ALIGN__ ) ) {			// previous request not aligned ?
+		if ( LIKELY( oalignment <= __ALIGN__ ) ) {			// previous request not aligned ?
 			naddr = doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
 		} else {
 			#ifdef __STATISTICS__
 			heapManager->stats.realloc_align += 1;
 			#endif // __STATISTICS__
-			naddr = memalignNoStats( oalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
+			naddr = memalignNoStats( oalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 		} // if
 
 		header = HeaderAddr( naddr );					// new header
@@ -1622,9 +1622,128 @@ extern "C" {
 
 
 	// Same as realloc() except the new allocation size is large enough for an array of nelem elements of size elsize.
-	void * reallocarray( void * oaddr, size_t dim, size_t elemSize ) {
-		return realloc( oaddr, dim * elemSize );
+	void * reallocarray( void * oaddr, size_t dimension, size_t elemSize ) {
+		return realloc( oaddr, dimension * elemSize );
 	} // reallocarray
+
+
+	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) {
+	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
+			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) );
+		} // if
+	
+	  if ( UNLIKELY( size == 0 ) ) {
+			STAT_0_CNT( HeapStatistics::RESIZE );
+			doFree( oaddr );
+			return nullptr;
+		} // if
+	
+		// Attempt to reuse existing alignment.
+		Heap::Storage::Header * header = HeaderAddr( oaddr );
+		bool isFakeHeader = AlignmentBit( header );		// old fake header ?
+		size_t oalignment;
+	
+		if ( UNLIKELY( isFakeHeader ) ) {
+			checkAlign( nalignment );					// check alignment
+			oalignment = ClearAlignmentBit( header );	// old alignment
+
+			if ( UNLIKELY( (uintptr_t)oaddr % nalignment == 0 // lucky match ?
+				 && ( oalignment <= nalignment			// going down
+					  || (oalignment >= nalignment && oalignment <= 256) ) // little alignment storage wasted ?
+				) ) {
+				HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
+				Heap::FreeHeader * freeHead;
+				size_t bsize;
+				headers( "resize", oaddr, header, freeHead, bsize, oalignment );
+				size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
+	
+				if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
+					HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
+
+					ClearZeroFillBit( header );			// turn off 0 fill
+					#ifdef __DEBUG__
+					heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
+					#endif // __DEBUG__
+					header->kind.real.size = size;		// reset allocation size
+					#ifdef __STATISTICS__
+					heapManager->stats.resize_calls += 1;
+					#endif // __STATISTICS__
+					return oaddr;
+				} // if
+			} // if
+		} else if ( ! isFakeHeader						// old real header (aligned on libAlign) ?
+					&& nalignment == __ALIGN__ ) {		// new alignment also on libAlign => no fake header needed
+			return resize( oaddr, size );				// duplicate special case checks
+		} // if
+	
+		// change size, DO NOT PRESERVE STICKY PROPERTIES.
+		doFree( oaddr );								// free previous storage
+		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
+	} // aligned_resize
+	
+	
+	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) {
+	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
+			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) );
+		} // if
+	
+	  if ( UNLIKELY( size == 0 ) ) {
+			STAT_0_CNT( HeapStatistics::REALLOC );
+			doFree( oaddr );
+			return nullptr;
+		} // if
+	
+		// Attempt to reuse existing alignment.
+		Heap::Storage::Header * header = HeaderAddr( oaddr );
+		bool isFakeHeader = AlignmentBit( header );		// old fake header ?
+		size_t oalignment;
+	
+		if ( UNLIKELY( isFakeHeader ) ) {
+			checkAlign( nalignment );					// check alignment
+			oalignment = ClearAlignmentBit( header );	// old alignment
+			if ( UNLIKELY( (uintptr_t)oaddr % nalignment == 0 // lucky match ?
+				 && ( oalignment <= nalignment			// going down
+					  || (oalignment >= nalignment && oalignment <= 256) ) // little alignment storage wasted ?
+				) ) {
+				HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
+				return realloc( oaddr, size );			// duplicate special case checks
+			} // if
+		} else if ( ! isFakeHeader						// old real header (aligned on libAlign) ?
+					&& nalignment == __ALIGN__ ) {		// new alignment also on libAlign => no fake header needed
+			return realloc( oaddr, size );				// duplicate special case checks
+		} // if
+	
+		Heap::FreeHeader * freeHead;
+		size_t bsize;
+		headers( "realloc", oaddr, header, freeHead, bsize, oalignment );
+	
+		// change size and copy old content to new storage
+	
+		size_t osize = header->kind.real.size;			// old allocation size
+		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
+	
+		void * naddr = memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
+	
+		header = HeaderAddr( naddr );					// new header
+		size_t alignment;
+		fakeHeader( header, alignment );				// could have a fake header
+	
+		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
+		doFree( oaddr );								// free previous storage
+	
+		if ( UNLIKELY( ozfill ) ) {						// previous request zero fill ?
+			MarkZeroFilledBit( header );				// mark new request as zero filled
+			if ( size > osize ) {						// previous request larger ?
+				memset( (char *)naddr + osize, '\0', size - osize ); // initialize added storage
+			} // if
+		} // if
+		return naddr;
+	} // aligned_realloc
+	
+	
+	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) {
+		return aligned_realloc( oaddr, nalignment, dimension * elemSize );
+	} // aligned_reallocarray
 
 
 	// Same as malloc() except the memory address is a multiple of alignment, which must be a power of two. (obsolete)
@@ -1634,14 +1753,14 @@ extern "C" {
 
 
 	// Same as aalloc() with memory alignment.
-	void * amemalign( size_t alignment, size_t dim, size_t elemSize ) {
-		return memalignNoStats( alignment, dim * elemSize STAT_ARG( HeapStatistics::AMEMALIGN ) );
+	void * amemalign( size_t alignment, size_t dimension, size_t elemSize ) {
+		return memalignNoStats( alignment, dimension * elemSize STAT_ARG( HeapStatistics::AMEMALIGN ) );
 	} // amemalign
 
 
 	// Same as calloc() with memory alignment.
-	void * cmemalign( size_t alignment, size_t dim, size_t elemSize ) {
-		size_t size = dim * elemSize;
+	void * cmemalign( size_t alignment, size_t dimension, size_t elemSize ) {
+		size_t size = dimension * elemSize;
 		char * addr = (char *)memalignNoStats( alignment, size STAT_ARG( HeapStatistics::CMEMALIGN ) );
 
 	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
@@ -1861,124 +1980,6 @@ extern "C" {
 	// Amount subtracted to adjust for unfreed program storage (debug only).
 	__attribute__((weak)) size_t malloc_unfreed() { return __DEFAULT_HEAP_UNFREED__; }
 } // extern "C"
-
-
-// Must have C++ linkage to overload with C linkage realloc.
-void * resize( void * oaddr, size_t nalign, size_t size ) __THROW {
-  if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
-		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) );
-	} // if
-
-  if ( UNLIKELY( size == 0 ) ) {
-		STAT_0_CNT( HeapStatistics::RESIZE );
-		doFree( oaddr );
-		return nullptr;
-	} // if
-
-	// Attempt to reuse existing alignment.
-	Heap::Storage::Header * header = HeaderAddr( oaddr );
-	bool isFakeHeader = AlignmentBit( header );			// old fake header ?
-	size_t oalign;
-
-	if ( UNLIKELY( isFakeHeader ) ) {
-		checkAlign( nalign );							// check alignment
-		oalign = ClearAlignmentBit( header );			// old alignment
-		if ( UNLIKELY( (uintptr_t)oaddr % nalign == 0	// lucky match ?
-			 && ( oalign <= nalign						// going down
-				  || (oalign >= nalign && oalign <= 256) ) // little alignment storage wasted ?
-			) ) {
-			HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalign ); // update alignment (could be the same)
-			Heap::FreeHeader * freeHead;
-			size_t bsize, oalign;
-			headers( "resize", oaddr, header, freeHead, bsize, oalign );
-			size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
-
-			if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
-				HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalign ); // update alignment (could be the same)
-				ClearZeroFillBit( header );				// turn off 0 fill
-				#ifdef __DEBUG__
-				heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
-				#endif // __DEBUG__
-				header->kind.real.size = size;			// reset allocation size
-				#ifdef __STATISTICS__
-				heapManager->stats.resize_calls += 1;
-				#endif // __STATISTICS__
-				return oaddr;
-			} // if
-		} // if
-	} else if ( ! isFakeHeader							// old real header (aligned on libAlign) ?
-				&& nalign == __ALIGN__ ) {				// new alignment also on libAlign => no fake header needed
-		return resize( oaddr, size );					// duplicate special case checks
-	} // if
-
-	// change size, DO NOT PRESERVE STICKY PROPERTIES.
-	doFree( oaddr );									// free previous storage
-	return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
-} // resize
-
-
-void * realloc( void * oaddr, size_t nalign, size_t size ) __THROW {
-  if ( UNLIKELY( oaddr == nullptr ) ) {					// => malloc( size )
-		return memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) );
-	} // if
-
-  if ( UNLIKELY( size == 0 ) ) {
-		STAT_0_CNT( HeapStatistics::REALLOC );
-		doFree( oaddr );
-		return nullptr;
-	} // if
-
-	// Attempt to reuse existing alignment.
-	Heap::Storage::Header * header = HeaderAddr( oaddr );
-	bool isFakeHeader = AlignmentBit( header );			// old fake header ?
-	size_t oalign;
-
-	if ( UNLIKELY( isFakeHeader ) ) {
-		checkAlign( nalign );							// check alignment
-		oalign = ClearAlignmentBit( header );			// old alignment
-		if ( UNLIKELY( (uintptr_t)oaddr % nalign == 0	// lucky match ?
-			 && ( oalign <= nalign						// going down
-				  || (oalign >= nalign && oalign <= 256) ) // little alignment storage wasted ?
-			) ) {
-			HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalign ); // update alignment (could be the same)
-			return realloc( oaddr, size );				// duplicate special case checks
-		} // if
-	} else if ( ! isFakeHeader							// old real header (aligned on libAlign) ?
-				&& nalign == __ALIGN__ ) {				// new alignment also on libAlign => no fake header needed
-		return realloc( oaddr, size );					// duplicate special case checks
-	} // if
-
-	Heap::FreeHeader * freeHead;
-	size_t bsize;
-	headers( "realloc", oaddr, header, freeHead, bsize, oalign );
-
-	// change size and copy old content to new storage
-
-	size_t osize = header->kind.real.size;				// old allocation size
-	bool ozfill = ZeroFillBit( header );				// old allocation zero filled
-
-	void * naddr = memalignNoStats( nalign, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
-
-	header = HeaderAddr( naddr );						// new header
-	size_t alignment;
-	fakeHeader( header, alignment );					// could have a fake header
-
-	memcpy( naddr, oaddr, Min( osize, size ) );			// copy bytes
-	doFree( oaddr );									// free previous storage
-
-	if ( UNLIKELY( ozfill ) ) {							// previous request zero fill ?
-		MarkZeroFilledBit( header );					// mark new request as zero filled
-		if ( size > osize ) {							// previous request larger ?
-			memset( (char *)naddr + osize, '\0', size - osize ); // initialize added storage
-		} // if
-	} // if
-	return naddr;
-} // realloc
-
-
-void * reallocarray( void * oaddr, size_t nalign, size_t dim, size_t elemSize ) __THROW {
-	return realloc( oaddr, nalign, dim * elemSize );
-} // reallocarray
 
 
 // zip -r llheap.zip heap/README.md heap/llheap.h heap/llheap.cc heap/Makefile heap/affinity.h heap/test.cc heap/ownership.cc
