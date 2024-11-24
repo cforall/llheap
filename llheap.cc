@@ -21,12 +21,12 @@
 	statement ;	\
 	_Pragma ( "GCC diagnostic pop" )
 
-#define FASTLOOKUP										// use O(1) table lookup from allocation size to bucket size
-#define OWNERSHIP										// return freed memory to owner thread
-#define RETURNSPIN										// toggle spinlock / lockfree queue
-#if ! defined( OWNERSHIP ) && defined( RETURNSPIN )
+#define __FASTLOOKUP__									// use O(1) table lookup from allocation size to bucket size
+#define __OWNERSHIP__									// return freed memory to owner thread
+#define __RETURNSPIN__									// toggle spinlock / lockfree queue
+#if ! defined( __OWNERSHIP__ ) && defined( __RETURNSPIN__ )
 #warning "RETURNSPIN is ignored without OWNERSHIP; suggest commenting out RETURNSPIN"
-#endif // ! OWNERSHIP && RETURNSPIN
+#endif // ! __OWNERSHIP__ && __RETURNSPIN__
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -45,7 +45,7 @@
 #define LLDEBUG( stmt ) stmt
 #else
 #define LLDEBUG( stmt )
-#endif // __U_DEBUG__
+#endif // __LL_DEBUG__
 
 
 // The return code from "write" is ignored. Basically, if write fails, trying to write out why it failed will likely
@@ -329,7 +329,7 @@ struct HeapStatistics {
 			unsigned long long int realloc_align, realloc_0_fill;
 			unsigned long long int free_calls, free_null_0_calls;
 			unsigned long long int free_storage_request, free_storage_alloc;
-			unsigned long long int return_pulls, return_pushes;
+			unsigned long long int return_pushes, return_pulls;
 			unsigned long long int return_storage_request, return_storage_alloc;
 			unsigned long long int mmap_calls, mmap_0_calls; // no zero calls
 			unsigned long long int mmap_storage_request, mmap_storage_alloc;
@@ -403,12 +403,12 @@ struct Heap {
 	static_assert( __ALIGN__ >= sizeof( Storage ), "minimum alignment < sizeof( Storage )" );
 
 	struct CALIGN FreeHeader {
-		#ifdef OWNERSHIP
-		#ifdef RETURNSPIN
+		#ifdef __OWNERSHIP__
+		#ifdef __RETURNSPIN__
 		SpinLock_t returnLock;
-		#endif // RETURNSPIN
+		#endif // __RETURNSPIN__
 		Storage * returnList;							// other thread return list
-		#endif // OWNERSHIP
+		#endif // __OWNERSHIP__
 
 		Storage * freeList;								// thread free list
 		Heap * homeManager;								// heap owner (free storage to bucket, from bucket to heap)
@@ -477,9 +477,10 @@ static void heapManagerDtor();
 
 
 namespace {												// hide static members
+	// Used solely to detect when a thread terminates. Thread creation is handled by a fastpath dynamic check.
 	struct ThreadManager {
-		volatile bool pgm_thread;						// used to trigger allocation of storage and indicate program thread
-		~ThreadManager() { if ( pgm_thread ) heapManagerDtor(); } // called automagically when thread terminates
+		volatile bool trigger;							// used to trigger allocation of thread-local object, otherwise unused
+		~ThreadManager() { heapManagerDtor(); }			// called automagically when thread terminates
 	}; // ThreadManager
 
 	struct HeapMaster {
@@ -521,10 +522,10 @@ namespace {												// hide static members
 } // namespace
 
 
-#ifdef FASTLOOKUP
+#ifdef __FASTLOOKUP__
 enum { LookupSizes = 65'536 + sizeof(Heap::Storage) };	// number of fast lookup sizes
 static unsigned char lookup[LookupSizes];				// O(1) lookup for small sizes
-#endif // FASTLOOKUP
+#endif // __FASTLOOKUP__
 
 static volatile bool heapMasterBootFlag = false;		// trigger for first heap
 static HeapMaster heapMaster;							// program global
@@ -532,8 +533,9 @@ static HeapMaster heapMaster;							// program global
 
 // Size of array must harmonize with NoBucketSizes and individual bucket sizes must be multiple of 16.
 // Smaller multiples of 16 and powers of 2 are common allocation sizes, so make them generate the minimum required bucket size.
-// malloc(0) returns nullptr, so no bucket is necessary for 0 bytes returning an address that can be freed.
 static const unsigned int bucketSizes[] = {				// different bucket sizes
+	// There is no 0-sized bucket becasue it is better to create a 16 byte bucket for rare malloc(0), which can be
+	// reused later by a 16-byte allocation.
 	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
 	96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 3
 	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
@@ -560,11 +562,10 @@ static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0
 // Thread-local storage is allocated lazily when the storage is accessed.
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
 static thread_local ThreadManager threadManager CALIGN TLSMODEL;
-static thread_local Heap * heapManager CALIGN TLSMODEL;
-#ifndef OWNERSHIP
+static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
+#ifndef __OWNERSHIP__
 static thread_local Heap * shadow_heap CALIGN TLSMODEL;
-#endif // ! OWNERSHIP
-static thread_local bool heapManagerBootFlag CALIGN TLSMODEL = false;
+#endif // ! __OWNERSHIP__
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
@@ -617,14 +618,14 @@ void HeapMaster::heapMasterCtor() {
 	signal( SIGBUS,  sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Bus error, bad memory access (default: Core)
 	#endif // __DEBUG__
 
-	#ifdef FASTLOOKUP
+	#ifdef __FASTLOOKUP__
 	for ( unsigned int i = 0, idx = 0; i < LookupSizes; i += 1 ) {
 		if ( i > bucketSizes[idx] ) idx += 1;
 		lookup[i] = idx;
 		assert( i <= bucketSizes[idx] );
 		assert( (i <= 32 && idx == 0) || (i > bucketSizes[idx - 1]) );
 	} // for
-	#endif // FASTLOOKUP
+	#endif // __FASTLOOKUP__
 
 	std::set_new_handler( noMemory );					// do not throw exception as the default
 
@@ -675,12 +676,12 @@ Heap * HeapMaster::getHeap() {
 
 		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
 			heap->freeLists[j] = (Heap::FreeHeader){
-				#ifdef OWNERSHIP
-				#ifdef RETURNSPIN
+				#ifdef __OWNERSHIP__
+				#ifdef __RETURNSPIN__
 				.returnLock = 0,
 				.returnList = nullptr,
-				#endif // RETURNSPIN
-				#endif // OWNERSHIP
+				#endif // __RETURNSPIN__
+				#endif // __OWNERSHIP__
 
 				.freeList = nullptr,
 				.homeManager = heap,
@@ -701,7 +702,6 @@ Heap * HeapMaster::getHeap() {
 		#ifdef __DEBUG__
 		heap->allocUnfreed = 0;
 		#endif // __DEBUG__
-		heapManagerBootFlag = true;
 	} // if
 
 	return heap;
@@ -709,20 +709,9 @@ Heap * HeapMaster::getHeap() {
 
 
 static void heapManagerCtor() {
-	// Trigger thread_local storage implicit allocation (causes recursive call) and identify program thread because
-	// heapMasterBootFlag is false.
-	threadManager.pgm_thread = heapMasterBootFlag;
-
 	if ( UNLIKELY( ! heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
-
-  if ( heapManagerBootFlag ) {							// singleton
-		spin_release( &heapMaster.mgrLock );
-		return;											// always return on recursive initiation
-	} // if
-
-	assert( ! heapManagerBootFlag );
 
 	// get storage for heap manager
 
@@ -734,12 +723,14 @@ static void heapManagerCtor() {
 	#endif // __STATISTICS__
 
 	spin_release( &heapMaster.mgrLock );
+
+	// Trigger thread_local storage implicit allocation, which(causes a dynamic allocation but not a recursive entry
+	// because heapManager is set above.
+	threadManager.trigger = true;						// any value works
 } // heapManagerCtor
 
 
 static void heapManagerDtor() {
-  if ( UNLIKELY( ! heapManagerBootFlag ) ) return;		// thread never used ?
-
 	spin_acquire( &heapMaster.mgrLock );
 
 	// push heap onto list of free heaps for reusability
@@ -763,12 +754,11 @@ static void heapManagerDtor() {
 	// heapManager being null. The trick is for this thread to place the last free onto the current heap's return-list as
 	// the free-storage header points are this heap. Now, even if other threads are pushing to the return list, it is safe
 	// because of the locking.
-	#ifndef OWNERSHIP
+	#ifndef __OWNERSHIP__
 	shadow_heap = heapManager;
-	#endif // ! OWNERSHIP
-	heapManager = nullptr;
+	#endif // ! __OWNERSHIP__
 
-	heapManagerBootFlag = false;
+	heapManager = nullptr;							// => heap not in use
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
 
@@ -777,7 +767,7 @@ static void heapManagerDtor() {
 
 
 NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor )
-	if ( ! heapMasterBootFlag ) heapManagerCtor();		// sanity check
+	if ( ! heapMasterBootFlag ) { heapManagerCtor(); }	// sanity check
 	#ifdef __DEBUG__
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
 	#endif // __DEBUG__
@@ -848,7 +838,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
 	"            copies %'llu; smaller %'llu; alignment %'llu; 0 fill %'llu\n" \
 	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  return    pulls %'llu; pushes %'llu; storage %'llu / %'llu bytes\n" \
+	"  return    pushes %'llu; pulls %'llu; storage %'llu / %'llu bytes\n" \
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
 	"  mmap      calls %'llu; reuse %'llu; storage %'llu / %'llu bytes\n" \
 	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
@@ -870,7 +860,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
 			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
 			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.return_pulls, stats.return_pushes, stats.return_storage_request, stats.return_storage_alloc,
+			stats.return_pushes, stats.return_pulls, stats.return_storage_request, stats.return_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, heapManager->mmapReuse, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
@@ -896,7 +886,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"       \" copy count=\"%'llu;\" smaller count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"return\" pulls=\"%'llu;\" 0 pushes=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"return\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"sbrk\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu / %'llu\" / > bytes\n" \
 	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
@@ -918,7 +908,7 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see mallo
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
 			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
 			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.return_pulls, stats.return_pushes, stats.return_storage_request, stats.return_storage_alloc,
+			stats.return_pushes, stats.return_pulls, stats.return_storage_request, stats.return_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
@@ -1096,46 +1086,44 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 } // master_extend
 
 
-static inline __attribute__((always_inline)) void * manager_extend( size_t size ) {
-	ptrdiff_t rem = heapManager->heapReserve - size;
+static void * manager_extend( size_t size ) {
+	ptrdiff_t rem;
 
-	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
-		// If the size requested is bigger than the current remaining reserve, so increase the reserve.
-		size_t increase = Ceiling( size > ( heapMaster.heapExpand / 10 ) ? size : ( heapMaster.heapExpand / 10 ), __ALIGN__ );
-		void * block = master_extend( increase );
+	// If the size requested is bigger than the current remaining reserve, so increase the reserve.
+	size_t increase = Ceiling( size > ( heapMaster.heapExpand / 10 ) ? size : ( heapMaster.heapExpand / 10 ), __ALIGN__ );
+	void * newblock = master_extend( increase );
 
-		// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
-		// For sequential programs, this check is always true.
-		if ( block != (char *)heapManager->heapBuffer + heapManager->heapReserve ) {
-			// Otherwise, find the closest bucket size to the remaining storage in the reserve block and chain it onto
-			// that free list. Distributing the storage across multiple free lists is an option but takes time.
-			rem = heapManager->heapReserve;				// positive
+	// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
+	// For sequential programs, this check is always true.
+	if ( newblock != (char *)heapManager->heapBuffer + heapManager->heapReserve ) {
+		// Otherwise, find the closest bucket size to the remaining storage in the reserve block and chain it onto
+		// that free list. Distributing the storage across multiple free lists is an option but takes time.
+		rem = heapManager->heapReserve;				// positive
 
-			if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
-				#ifdef __STATISTICS__
-				heapMaster.nremainder += 1;
-				heapMaster.remainder += rem;
-				#endif // __STATISTICS__
+		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
+			#ifdef __STATISTICS__
+			heapMaster.nremainder += 1;
+			heapMaster.remainder += rem;
+			#endif // __STATISTICS__
 
-				Heap::FreeHeader * freeHead =
-				#ifdef FASTLOOKUP
-					rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
-				#endif // FASTLOOKUP
-					&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
+			Heap::FreeHeader * freeHead =
+			#ifdef __FASTLOOKUP__
+				rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
+			#endif // __FASTLOOKUP__
+				&(heapManager->freeLists[Bsearchl( rem, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
 
-				// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
-				// bucket size in this case.
-				if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
-				Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
+			// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
+			// bucket size in this case.
+			if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
+			Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
 
-				block->header.kind.real.next = freeHead->freeList; // push on stack
-				freeHead->freeList = block;
-			} // if
+			block->header.kind.real.next = freeHead->freeList; // push on stack
+			freeHead->freeList = block;
 		} // if
-
-		heapManager->heapBuffer = block;
-		rem = increase - size;
 	} // if
+
+	heapManager->heapBuffer = newblock;
+	rem = increase - size;
 
 	heapManager->heapReserve = rem;
 	Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
@@ -1157,21 +1145,23 @@ static inline __attribute__((always_inline)) void * manager_extend( size_t size 
 #define STAT_0_CNT( counter )
 #endif // __STATISTICS__
 
-#define BOOT_HEAP_MANAGER \
-  	if ( UNLIKELY( ! heapManagerBootFlag ) ) { \
-		heapManagerCtor(); /* trigger for first heap */ \
-	} /* if */ \
-	assert( heapManager );
+#define BOOT_HEAP_MANAGER() \
+  	if ( UNLIKELY( heapManager == (Heap *)1 ) ) { /* new thread ? */ \
+		heapManagerCtor(); /* trigger for first heap, singleton */ \
+		assert( heapManager ); \
+	} /* if */
 
+// NULL_0_ALLOC is disabled because a lot of programs incorrectly check for out of memory by just checking for a NULL
+// return from malloc, rather than checking both NULL return and errno == ENOMEM.
 //#define __NULL_0_ALLOC__ /* Uncomment to return null address for malloc( 0 ). */
 
-#define SCRUB_SIZE 1024lu
 // Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
 // pointer in the interrupt frame.
-#define SCRUB '\xff'
+#define SCRUB '\xff'									// scrub value
+#define SCRUB_SIZE 1024lu								// scrub size, front/back/all of allocation area
 
 static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
-	BOOT_HEAP_MANAGER;
+	BOOT_HEAP_MANAGER();
 
 	#ifdef __NULL_0_ALLOC__
 	if ( UNLIKELY( size == 0 ) ) {
@@ -1189,9 +1179,11 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 	Heap::Storage * block;								// pointer to new block of storage
 
-	// Look up size in the size list.  Make sure the user request includes space for the header that must be allocated
-	// along with the block and is a multiple of the alignment size.
-	size_t tsize = size + sizeof(Heap::Storage);		// total size needed
+	// Look up size in the size list.
+
+	// The user request must include space for the header allocated along with the storage block and is a multiple of
+	// the alignment size.
+	size_t tsize = size + sizeof(Heap::Storage);		// total request space needed
 	Heap * heap = heapManager;							// optimization
 
 	#ifdef __STATISTICS__
@@ -1207,35 +1199,54 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	heap->allocUnfreed += size;
 	#endif // __DEBUG__
 
+	// Memory is scrubbed in doFree for debug, so no scrubbing on allocation side.
+
 	if ( LIKELY( size < heapMaster.mmapStart ) ) {		// small size => sbrk
 		Heap::FreeHeader * freeHead =
-			#ifdef FASTLOOKUP
+			#ifdef __FASTLOOKUP__
 			LIKELY( tsize < LookupSizes ) ? &(heap->freeLists[lookup[tsize]]) :
-			#endif // FASTLOOKUP
+			#endif // __FASTLOOKUP__
 			&(heapManager->freeLists[Bsearchl( tsize, bucketSizes, heapMaster.maxBucketsUsed )]); // binary search
 
 		assert( freeHead <= &heap->freeLists[heapMaster.maxBucketsUsed] ); // subscripting error ?
 		assert( tsize <= freeHead->blockSize );			// search failure ?
 
-		tsize = freeHead->blockSize;					// total space needed for request
 		#ifdef __STATISTICS__
-		heap->stats.counters[STAT_NAME].alloc += tsize;
+		heap->stats.counters[STAT_NAME].alloc += freeHead->blockSize; // total space needed for request
 		#endif // __STATISTICS__
 
+		// The checking order for freed storage versus bump storage has a performance difference, if there are lots of
+		// allocations before frees. The following checks for freed storage first in an attempt to reduce the storage
+		// footprint, i.e., starting using freed storage before using all the free block.
+		
 		block = freeHead->freeList;						// remove node from stack
-		if ( UNLIKELY( block == nullptr ) ) {			// no free block ?
-			// Freelist for this size is empty, so check return list (OWNERSHIP), or carve it out of the heap if there
-			// is enough left, or get some more heap storage and carve it off.
-			#ifdef OWNERSHIP
-			if ( UNLIKELY( freeHead->returnList ) ) {	// race, get next time if lose race
-				#ifdef RETURNSPIN
+		if ( LIKELY( block != nullptr ) ) {				// free block ?
+			// Get storage from the corresponding free list.
+			freeHead->freeList = block->header.kind.real.next;
+
+			#ifdef __STATISTICS__
+			freeHead->reuses += 1;
+			#endif // __STATISTICS__
+		} else {
+			// Get storage from free block using bump allocation.
+			tsize = freeHead->blockSize;				// optimization, bucket size for request space
+			ptrdiff_t rem = heapManager->heapReserve - tsize;
+			if ( LIKELY( rem >= 0 ) ) {					// bump storage ?
+				heapManager->heapReserve = rem;
+				block = (Heap::Storage *)heapManager->heapBuffer;
+				heapManager->heapBuffer = (char *)heapManager->heapBuffer + tsize;
+			#ifdef __OWNERSHIP__
+				// Race with adding thread, get next time if lose race.
+			} else if ( UNLIKELY( freeHead->returnList ) ) { // returned space ?
+				// Get storage by removing entire return list and chain onto appropriate free list.
+				#ifdef __RETURNSPIN__
 				spin_acquire( &freeHead->returnLock );
 				block = freeHead->returnList;
 				freeHead->returnList = nullptr;
 				spin_release( &freeHead->returnLock );
 				#else
 				block = __atomic_exchange_n( &freeHead->returnList, nullptr, __ATOMIC_SEQ_CST );
-				#endif // RETURNSPIN
+				#endif // __RETURNSPIN__
 
 				assert( block );
 				#ifdef __STATISTICS__
@@ -1244,33 +1255,34 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 				freeHead->freeList = block->header.kind.real.next; // merge returnList into freeHead
 			} else {
-			#endif // OWNERSHIP
+			#endif // __OWNERSHIP__
+				// Get storage from a *new* free block using bump alocation.
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 
 				#ifdef __DEBUG__
 				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
 				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
-			#ifdef OWNERSHIP
+			#ifdef __OWNERSHIP__
 			} // if
-			#endif // OWNERSHIP
+			#endif // __OWNERSHIP__
 
 			#ifdef __STATISTICS__
 			freeHead->allocations += 1;
-			#endif // __STATISTICS__
-		} else {
-			// Memory is scrubbed in doFree.
-			freeHead->freeList = block->header.kind.real.next;
-
-			#ifdef __STATISTICS__
-			freeHead->reuses += 1;
 			#endif // __STATISTICS__
 		} // if
 
 		block->header.kind.real.home = freeHead;		// pointer back to free list of apropriate size
 	} else {											// large size => mmap
-  if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) return nullptr; // error check
-		tsize = Ceiling( tsize, 1 * 1024 * 1024 /*heapMaster.pageSize*/ ); // must be multiple of page size
+		#ifdef __DEBUG__
+		/// Recheck because of minimum allocation size (page size).
+		if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) {
+			errno = ENOMEM;
+			return nullptr;
+		} // if
+		#endif // __DEBUG__
+
+		tsize = Ceiling( tsize, heapMaster.pageSize );	// must be multiple of page size
 
 		#ifdef __STATISTICS__
 		heap->stats.counters[STAT_NAME].alloc += tsize;
@@ -1308,10 +1320,20 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 
 static inline __attribute__((always_inline)) void doFree( void * addr ) {
+	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
+	// A thread can run without a heap, and hence, have an uninitialized heapManager. For example, in the ownership
+	// program, the consumer thread does not allocate storage, it only frees storage back to the owning producer
+	// thread. Hence, the consumer never calls doMalloc to trigger heap creation for its thread. However, this situation
+	// is a problem for statistics, the consumer needs a heap to gather statistics. Hence, the special case to trigger a
+	// heap if there is none.
+	BOOT_HEAP_MANAGER();								// singlton
+	#endif // __STATISTICS__ || __DEBUG__
+
+	// At this point heapManager can be null because there is a thread_local deallocation *after* the destructor for the
+	// thread termination is run. The code below is prepared to handle this case and uses the master heap for statistics.
+
 	assert( addr );
 	Heap * heap = heapManager;							// optimization
-
-	// detect free after thread-local storage destruction and use global stats in that case
 
 	Heap::Storage::Header * header;
 	Heap::FreeHeader * freeHead;
@@ -1336,12 +1358,12 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 		} // if
 		#endif // __DEBUG__
 
-		#ifdef OWNERSHIP
+		#ifdef __OWNERSHIP__
 		if ( LIKELY( heap == freeHead->homeManager ) ) { // belongs to this thread
 			header->kind.real.next = freeHead->freeList; // push on stack
 			freeHead->freeList = (Heap::Storage *)header;
 		} else {										// return to thread owner
-			#ifdef RETURNSPIN
+			#ifdef __RETURNSPIN__
 			spin_acquire( &freeHead->returnLock );
 			header->kind.real.next = freeHead->returnList; // push to bucket return list
 			freeHead->returnList = (Heap::Storage *)header;
@@ -1351,11 +1373,12 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			// CAS resets header->kind.real.next = freeHead->returnList on failure
 			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap.Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
-			#endif // RETURNSPIN
+			#endif // __RETURNSPIN__
 
 			if ( UNLIKELY( heap == nullptr ) ) {
 				// Use master heap counters as heap is reused by this point.
 				#ifdef __STATISTICS__
+				AtomicFetchAdd( heapMaster.stats.return_pushes, 1 );
 				AtomicFetchAdd( heapMaster.stats.free_storage_request, size );
 				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, tsize );
 				// Return push counters are not incremented because this is a self-return push, and there is no
@@ -1388,7 +1411,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			// storage and a consumer deleting it. The deleted storage piles up in the consumer's heap, and hence,
 			// appears like leaked storage from the producer's perspective.
 		} // if
-		#endif // OWNERSHIP
+		#endif // __OWNERSHIP__
 	} else {											// mmapped
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
@@ -1411,7 +1434,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 		heap->stats.free_null_0_calls += 1;
 	else
 	#endif // __NULL_0_ALLOC__
-		heapManager->stats.free_calls += 1;				// count free amd implicit frees from resize/realloc
+		heap->stats.free_calls += 1;					// count free amd implicit frees from resize/realloc
 	heap->stats.free_storage_request += size;
 	heap->stats.free_storage_alloc += tsize;
 	#endif // __STATISTICS__
@@ -1654,7 +1677,7 @@ extern "C" {
 				HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
 				Heap::FreeHeader * freeHead;
 				size_t bsize;
-				headers( "resize", oaddr, header, freeHead, bsize, oalignment );
+				headers( "aligned_resize", oaddr, header, freeHead, bsize, oalignment );
 				size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
 	
 				if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
@@ -1715,7 +1738,7 @@ extern "C" {
 	
 		Heap::FreeHeader * freeHead;
 		size_t bsize;
-		headers( "realloc", oaddr, header, freeHead, bsize, oalignment );
+		headers( "aligned_realloc", oaddr, header, freeHead, bsize, oalignment );
 	
 		// change size and copy old content to new storage
 	
