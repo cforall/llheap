@@ -61,57 +61,55 @@ template<typename T> class BoundedBuffer {				// barging
 	} // BoundedBuffer::remove
 };
 
-BoundedBuffer<void *> buffer( 10'000 );
+enum { BufSize = 10'000, ElemSize = 64 };
+BoundedBuffer<char *> buffer( BufSize );
 
-enum { BufSize = 20'000'000 };
-struct Buf {
-	char buf[BufSize];
-	Buf() { for ( int i = 0; i < BufSize; i += 1 ) buf[i] = '\0'; }
-	~Buf() { for ( int i = 0; i < BufSize; i += 1 ) buf[i] = '\xff' ; }
-};
+enum { N = 5'000'000 };
 
-thread_local Buf buf;
-
-enum { N = 10'000'000 };
-
-void * Prod( void * arg ) {
-	unsigned long int n = (unsigned long int) arg;
-	for ( unsigned int i = 0; i < n; i += 1 ) {
-		buffer.insert( malloc( 64 ) );
+void * Prod( void * ) {
+	for ( unsigned int i = 0; i < N; i += 1 ) {
+		char * data = (char *)malloc( ElemSize );
+		data[0] = 'a'; data[ElemSize - 1] = 'b';
+		buffer.insert( data );
 	} // for
 	return nullptr;
 };
 
 void * Cons( void * ) {
 	for ( unsigned int i = 0; i < N; i += 1 ) {
-		free( buffer.remove() );
+		char * data = buffer.remove();
+		assert( data[0] == 'a' && data[ElemSize - 1] == 'b' );
+		free( data );
 	} // for
 	return nullptr;
 };
 
-extern "C" size_t malloc_unfreed() { return 3 * 304 /* pthreads */; }
+extern "C" size_t malloc_unfreed() { return 4 * 304 /* pthreads */; }
 
 int main() {
-	pthread_t prod1, prod2, cons;
+	pthread_t prod1, prod2, cons1, cons2;
 	cpu_set_t mask;
 
-	if ( pthread_create( &cons, NULL, Cons, NULL ) < 0 ) abort();
+	if ( pthread_create( &cons1, NULL, Cons, NULL ) < 0 ) abort();
 	affinity( 0, mask );
-	if ( pthread_setaffinity_np( cons, sizeof(cpu_set_t), &mask ) ) abort();
+	if ( pthread_setaffinity_np( cons1, sizeof(cpu_set_t), &mask ) ) abort();
 
-	if ( pthread_create( &prod1, NULL, Prod, (void *)(N / 4) ) < 0 ) abort();
+	if ( pthread_create( &cons2, NULL, Cons, NULL ) < 0 ) abort();
 	affinity( 1, mask );
+	if ( pthread_setaffinity_np( cons2, sizeof(cpu_set_t), &mask ) ) abort();
+
+	if ( pthread_create( &prod1, NULL, Prod, NULL ) < 0 ) abort();
+	affinity( 2, mask );
 	if ( pthread_setaffinity_np( prod1, sizeof(cpu_set_t), &mask ) ) abort();
 
-	if ( pthread_create( &prod2, NULL, Prod, (void *)(N * 3 / 4) ) < 0 ) abort();
-	affinity( 2, mask );
+	if ( pthread_create( &prod2, NULL, Prod, NULL ) < 0 ) abort();
+	affinity( 3, mask );
 	if ( pthread_setaffinity_np( prod2, sizeof(cpu_set_t), &mask ) ) abort();
-
-	for ( int i = 0; i < BufSize; i += 1 ) buf.buf[i] = 'a';
 
 	if ( pthread_join( prod2, NULL ) < 0 ) abort();
 	if ( pthread_join( prod1, NULL ) < 0 ) abort();
-	if ( pthread_join( cons, NULL ) < 0 ) abort();
+	if ( pthread_join( cons1, NULL ) < 0 ) abort();
+	if ( pthread_join( cons2, NULL ) < 0 ) abort();
 	malloc_stats();
 }
 
@@ -120,5 +118,5 @@ int main() {
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 ownership.cc libllheap.o -lpthread -D`hostname`" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 ownership.cc libllheap-stats-debug.o -lpthread -D`hostname`" //
 // End: //
