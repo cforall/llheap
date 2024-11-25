@@ -17,8 +17,8 @@ extern "C" {
 	void * resize( void * oaddr, size_t size ) __attribute__ ((malloc));
 	void * amemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc));
 	void * cmemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc));
-	void * aligned_resize( void * oaddr, size_t nalign, size_t size ) __attribute__ ((malloc));
-	void * aligned_realloc( void * oaddr, size_t nalign, size_t size ) __attribute__ ((malloc));
+	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) __attribute__ ((malloc));
+	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) __attribute__ ((malloc));
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc));
 
 	size_t malloc_alignment( void * addr );		// object alignment
