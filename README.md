@@ -6,15 +6,23 @@
 $ make all
 ```
 
-creates 4 shared libraries that can be linked to a program to replace the default memory allocator.
+creates 8 libraries that can be linked to a program to replace the default memory allocator.
 
-* **`libhThread.o`** statically-linkable allocator optimized for performance without statistics or debugging.
-* **`libhThread-stats.o`** statically-linkable allocator optimized for debugging with statistics and debugging.
-* **`libhThread.so`** dynamically-linkable allocator optimized for performance without statistics or debugging.
-* **`libhThread-stats.o`** dynamically-linkable allocator optimized for debugging with statistics and debugging.
+* **`libllheap.o`** statically-linkable allocator with optimal performance without statistics or debugging.
+* **`libllheap-debug.o`** statically-linkable allocator with debugging.
+* **`libllheap-stats.o`** statically-linkable allocator with statistics.
+* **`libllheap-stats-debug.o`** statically-linkable allocator with debugging and statistics.
+* **`libllheap.so`** dynamically-linkable allocator with optimal performance without statistics or debugging.
+* **`libllheap-debug.so`** dynamically-linkable allocator with debugging.
+* **`libllheap-stats.so`** dynamically-linkable allocator with statistics.
+* **`libllheap-stats-debug.so`** dynamically-linkable allocator with debugging and statistics.
 
-By changing the Makefile (toggle `-D__STATISTICS__` and `-D__DEBUG__`) , it is possible to independently turn on statistics, debugging or both.
-By adding `-D__NONNULL_0_ALLOC__`, it is possible to get allocation addresses for a 0-sized allocation rather than a null pointer. 
+The Makefile has options for building.
+
+* __FASTLOOKUP__ (default) use O(1) table lookup from allocation size to bucket size for small allocations
+* __OWNERSHIP__	 (default) return freed memory to owner thread
+* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree queue
+* __NULL_0_ALLOC__ (default) return an allocation addresses for a 0-sized allocation rather than a null pointer
 
 # Memory Allocator Design
 
@@ -33,7 +41,6 @@ The objectives of the llheap design are:
 ## Extended Features
 
 * `malloc` remembers the original allocation size separate from the actual allocation size
-* `malloc` of zero bytes or errors (e.g., out of memory) return NULL (nullptr), rather than raising an exception (C++)
 * `calloc` sets the sticky zero-fill property
 * `memalign` sets the alignment sticky property, remembering the specified alignment size
 * `realloc` preserved all sticky properties when moving and increasing space
@@ -66,17 +73,6 @@ extends realloc for resizing an existing allocation *without* copying previous d
 
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
 
-### `void * resize( void * oaddr, size_t nalignment, size_t size )`
-extends resize with an alignment requirement.
-
-**Parameters:**
-
-* `oaddr`: address to be resized
-* `nalignment`: new alignment requirement
-* `size`: new allocation size (smaller or larger than previous)
-
-**Return:** address of the old or new storage with the specified new size or NULL if the resize fails.
-
 ### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
 extends aalloc and memalign for allocating an aligned dynamic array of objects. Sets sticky alignment property
 
@@ -95,7 +91,7 @@ Sets sticky zero-fill and alignment property.
 **Return:** address of the aligned, zero-filled dynamic-array or NULL if either dimension or elemSize are zero.
 
 ### `void * aligned_resize( void * oaddr, size_t nalignment, size_t size )`
-extends resize by realigning the old object to a new alignment requirement. Sets the sticky alignment property.
+extends resize with an alignment requirement.
 
 ### `void * aligned_realloc( void * oaddr, size_t nalignment, size_t size )`
 extends realloc by realigning the old object to a new alignment requirement. Sets the sticky alignment property.
