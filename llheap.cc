@@ -21,9 +21,9 @@
 	statement ;	\
 	_Pragma ( "GCC diagnostic pop" )
 
-#define __FASTLOOKUP__									// use O(1) table lookup from allocation size to bucket size
-#define __OWNERSHIP__									// return freed memory to owner thread
-#define __RETURNSPIN__									// toggle spinlock / lockfree queue
+#define __FASTLOOKUP__	// use O(1) table lookup from allocation size to bucket size for small allocations
+#define __OWNERSHIP__	// return freed memory to owner thread
+#define __RETURNSPIN__	// toggle spinlock / lockfree queue
 #if ! defined( __OWNERSHIP__ ) && defined( __RETURNSPIN__ )
 #warning "RETURNSPIN is ignored without OWNERSHIP; suggest commenting out RETURNSPIN"
 #endif // ! __OWNERSHIP__ && __RETURNSPIN__
