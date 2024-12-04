@@ -436,7 +436,6 @@ struct Heap {
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
-	unsigned long long int mmapReuse;					// number mmap blocks reused
 	HeapStatistics stats;								// local statistic table for this heap
 	#endif // __STATISTICS__
 }; // Heap
@@ -695,9 +694,6 @@ Heap * HeapMaster::getHeap() {
 		heap->heapBuffer = nullptr;
 		heap->heapReserve = 0;
 		heap->nextFreeHeapManager = nullptr;
-		#ifdef __STATISTICS__
-		heap->mmapReuse = 0;
-		#endif // __STATISTICS__
 
 		#ifdef __DEBUG__
 		heap->allocUnfreed = 0;
@@ -840,7 +836,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  return    pushes %'llu; pulls %'llu; storage %'llu / %'llu bytes\n" \
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
-	"  mmap      calls %'llu; reuse %'llu; storage %'llu / %'llu bytes\n" \
+	"  mmap      calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  remainder calls %'llu; storage %'llu bytes\n" \
 	"  threads   started %'llu; exited %'llu\n" \
@@ -862,7 +858,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
 			stats.return_pushes, stats.return_pulls, stats.return_storage_request, stats.return_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
-			stats.mmap_calls, heapManager->mmapReuse, stats.mmap_storage_request, stats.mmap_storage_alloc,
+			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
 			heapMaster.nremainder, heapMaster.remainder,
 			heapMaster.threads_started, heapMaster.threads_exited,
