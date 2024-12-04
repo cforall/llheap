@@ -778,13 +778,14 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 		int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket size / allocations / reuses)\n" );
 		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 
-		size_t th = 0;
+		size_t th = 0, total = 0;
 		for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
 			enum { Columns = 8 };
 			len = snprintf( helpText, sizeof(helpText), "Heap %zd\n", th );
 			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 			for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
 				if ( heap->freeLists[b].allocations != 0 ) {
+					total += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
 					len = snprintf( helpText, sizeof(helpText), "%zd %zd %zd, ",
 									heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
 					unused = write( STDERR_FILENO, helpText, len ); // file might be closed
@@ -794,6 +795,8 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 			} // for
 			unused = write( STDERR_FILENO, "\n", 1 );	// file might be closed
 		} // for
+		len = snprintf( helpText, sizeof(helpText), "Total bucket storage %zd\n", total );
+		unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 		#endif // __STATISTICS__
 	} // if
 
