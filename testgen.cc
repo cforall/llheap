@@ -41,7 +41,7 @@ void * worker( void * ) {
 		ip = (int *)malloc( 0 );
 		free( ip );
 	} // for
-	printf( "x = malloc(0)/free(x)\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
+	printf( "x = malloc( 0 )/free( x )\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
 
 	// free null pointer (CANNOT BE FIRST TEST BECAUSE HEAP IS NOT INITIALIZED => HIGH COST)
 	ip = nullptr;
@@ -252,7 +252,7 @@ int main( int argc, char * argv[] ) {
 		printf( "Usage: %s [ threads (>0) ]\n", argv[0] );
 		exit( EXIT_FAILURE );
 	} // try
-	printf("Number of Threads: %d\n\n", Threads);
+	printf( "Number of Threads: %d\n\n", Threads );
 
 	pthread_t thread[Threads];							// thread[0] unused
 
