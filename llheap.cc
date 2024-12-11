@@ -6,7 +6,7 @@
 #include <climits>										// ULONG_MAX
 #include <cstdarg>										// va_start, va_end
 #include <cerrno>										// errno, ENOMEM, EINVAL
-#include <cassert>
+#include <cassert>										// assert
 #include <cstdint>										// uintptr_t, uint64_t, uint32_t
 #include <unistd.h>										// STDERR_FILENO, sbrk, sysconf, write
 #include <sys/mman.h>									// mmap, munmap
@@ -56,6 +56,11 @@
 
 
 enum { BufSize = 1024 };
+
+#define always_assert(expr) \
+     (static_cast <bool> (expr)	\
+      ? void (0) \
+      : __assert_fail(#expr, __FILE__, __LINE__, __extension__ __PRETTY_FUNCTION__))
 
 // Called by macro assert in assert.h. Replace to prevent recursive call to malloc.
 extern "C" void __assert_fail( const char assertion[], const char file[], unsigned int line, const char function[] ) {
@@ -369,8 +374,8 @@ static HeapStatistics & operator+=( HeapStatistics & lhs, const HeapStatistics &
 
 
 enum {
-	// The minimum allocation alignment in bytes.
-	__ALIGN__ = __BIGGEST_ALIGNMENT__,
+	// The minimum allocation alignment in bytes, which must be <= smallest free bucket.
+	__ALIGN__ = __BIGGEST_ALIGNMENT__,					// magic CPP variable
 }; // enum
 
 struct Heap {
@@ -555,7 +560,7 @@ static const unsigned int bucketSizes[] = {				// different bucket sizes
 	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
 };
 
-static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array wrong" );
+static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array is wrong" );
 
 
 // Thread-local storage is allocated lazily when the storage is accessed.
@@ -574,8 +579,6 @@ extern "C" void noMemory( void );						// forward, called by "builtin_new" when 
 
 void HeapMaster::heapMasterCtor() {
 	// Singleton pattern to initialize heap master
-
-	assert( bucketSizes[0] == (16 + sizeof(Heap::Storage)) );
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 
@@ -621,8 +624,8 @@ void HeapMaster::heapMasterCtor() {
 	for ( unsigned int i = 0, idx = 0; i < LookupSizes; i += 1 ) {
 		if ( i > bucketSizes[idx] ) idx += 1;
 		lookup[i] = idx;
-		assert( i <= bucketSizes[idx] );
-		assert( (i <= 32 && idx == 0) || (i > bucketSizes[idx - 1]) );
+		always_assert( i <= bucketSizes[idx] ||			// overflow buckets ?
+					   i > bucketSizes[idx - 1] );		// overlapping bucket sizes ?
 	} // for
 	#endif // __FASTLOOKUP__
 
