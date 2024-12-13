@@ -425,7 +425,7 @@ struct Heap {
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
 	// Break recursion by hardcoding number of buckets and statically checking number is correct after bucket array defined.
-	enum { NoBucketSizes = 98 };						// number of bucket sizes
+	enum { NoBucketSizes = 96 };						// number of bucket sizes
 
 	FreeHeader freeLists[NoBucketSizes];				// buckets for different allocation sizes
 	void * heapBuffer;									// start of free storage in buffer
@@ -540,9 +540,8 @@ static HeapMaster heapMaster;							// program global
 static const unsigned int bucketSizes[] = {				// different bucket sizes
 	// There is no 0-sized bucket becasue it is better to create a 16 byte bucket for rare malloc(0), which can be
 	// reused later by a 16-byte allocation.
-	16 + sizeof(Heap::Storage), 24 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), // 3
-	40 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 56 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
-	96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 3
+	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
+	80 + sizeof(Heap::Storage), 96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 4
 	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
 	320, 384, 448, 512 + sizeof(Heap::Storage), // 4
 	640, 768, 896, 1'024 + sizeof(Heap::Storage), // 4
