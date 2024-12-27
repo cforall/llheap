@@ -38,8 +38,8 @@ void * worker( void * ) {
 	// malloc/free 0/null pointer
 	start = currTime();
 	for ( int i = 0; i < TIMES; i += 1 ) {
-		ip = (int *)malloc( 0 );
-		free( ip );
+		void * volatile vp = (void *)malloc( 0 );		// warning: insufficient size '0' for type 'int'
+		free( vp );
 	} // for
 	printf( "x = malloc( 0 )/free( x )\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
 
