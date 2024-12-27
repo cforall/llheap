@@ -446,6 +446,39 @@ struct Heap {
 }; // Heap
 
 
+// Size of array must harmonize with NoBucketSizes and individual bucket sizes must be multiple of 16.
+// Smaller multiples of 16 and powers of 2 are common allocation sizes, so make them generate the minimum required bucket size.
+static const unsigned int CALIGN bucketSizes[] = {		// different bucket sizes
+	// There is no 0-sized bucket becasue it is better to create a 16 byte bucket for rare malloc(0), which can be
+	// reused later by a 16-byte allocation.
+	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
+	80 + sizeof(Heap::Storage), 96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 4
+	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
+	320, 384, 448, 512 + sizeof(Heap::Storage), // 4
+	640, 768, 896, 1'024 + sizeof(Heap::Storage), // 4
+	1'536, 2'048 + sizeof(Heap::Storage), // 2
+	2'560, 3'072, 3'584, 4'096 + sizeof(Heap::Storage), // 4
+	6'144, 8'192 + sizeof(Heap::Storage), // 2
+	9'216, 10'240, 11'264, 12'288, 13'312, 14'336, 15'360, 16'384 + sizeof(Heap::Storage), // 8
+	18'432, 20'480, 22'528, 24'576, 26'624, 28'672, 30'720, 32'768 + sizeof(Heap::Storage), // 8
+	36'864, 40'960, 45'056, 49'152, 53'248, 57'344, 61'440, 65'536 + sizeof(Heap::Storage), // 8
+	73'728, 81'920, 90'112, 98'304, 106'496, 114'688, 122'880, 131'072 + sizeof(Heap::Storage), // 8
+	147'456, 163'840, 180'224, 196'608, 212'992, 229'376, 245'760, 262'144 + sizeof(Heap::Storage), // 8
+	294'912, 327'680, 360'448, 393'216, 425'984, 458'752, 491'520, 524'288 + sizeof(Heap::Storage), // 8
+	655'360, 786'432, 917'504, 1'048'576 + sizeof(Heap::Storage), // 4
+	1'179'648, 1'310'720, 1'441'792, 1'572'864, 1'703'936, 1'835'008, 1'966'080, 2'097'152 + sizeof(Heap::Storage), // 8
+	2'621'440, 3'145'728, 3'670'016, 4'194'304 + sizeof(Heap::Storage), // 4
+	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
+};
+
+static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array is wrong" );
+
+#ifdef __FASTLOOKUP__
+enum { LookupSizes = 65'536 + sizeof(Heap::Storage) };	// number of fast lookup sizes
+static unsigned char CALIGN lookup[LookupSizes];		// O(1) lookup for small sizes
+#endif // __FASTLOOKUP__
+
+
 // Manipulate sticky bits stored in unused 3 low-order bits of an address.
 //   bit0 => alignment => fake header
 //   bit1 => zero filled (calloc)
@@ -525,46 +558,12 @@ namespace {												// hide static members
 	}; // HeapMaster
 } // namespace
 
-
-#ifdef __FASTLOOKUP__
-enum { LookupSizes = 65'536 + sizeof(Heap::Storage) };	// number of fast lookup sizes
-static unsigned char lookup[LookupSizes];				// O(1) lookup for small sizes
-#endif // __FASTLOOKUP__
-
 static volatile bool heapMasterBootFlag = false;		// trigger for first heap
 static HeapMaster heapMaster;							// program global
 
 
-// Size of array must harmonize with NoBucketSizes and individual bucket sizes must be multiple of 16.
-// Smaller multiples of 16 and powers of 2 are common allocation sizes, so make them generate the minimum required bucket size.
-static const unsigned int bucketSizes[] = {				// different bucket sizes
-	// There is no 0-sized bucket becasue it is better to create a 16 byte bucket for rare malloc(0), which can be
-	// reused later by a 16-byte allocation.
-	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
-	80 + sizeof(Heap::Storage), 96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 4
-	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
-	320, 384, 448, 512 + sizeof(Heap::Storage), // 4
-	640, 768, 896, 1'024 + sizeof(Heap::Storage), // 4
-	1'536, 2'048 + sizeof(Heap::Storage), // 2
-	2'560, 3'072, 3'584, 4'096 + sizeof(Heap::Storage), // 4
-	6'144, 8'192 + sizeof(Heap::Storage), // 2
-	9'216, 10'240, 11'264, 12'288, 13'312, 14'336, 15'360, 16'384 + sizeof(Heap::Storage), // 8
-	18'432, 20'480, 22'528, 24'576, 26'624, 28'672, 30'720, 32'768 + sizeof(Heap::Storage), // 8
-	36'864, 40'960, 45'056, 49'152, 53'248, 57'344, 61'440, 65'536 + sizeof(Heap::Storage), // 8
-	73'728, 81'920, 90'112, 98'304, 106'496, 114'688, 122'880, 131'072 + sizeof(Heap::Storage), // 8
-	147'456, 163'840, 180'224, 196'608, 212'992, 229'376, 245'760, 262'144 + sizeof(Heap::Storage), // 8
-	294'912, 327'680, 360'448, 393'216, 425'984, 458'752, 491'520, 524'288 + sizeof(Heap::Storage), // 8
-	655'360, 786'432, 917'504, 1'048'576 + sizeof(Heap::Storage), // 4
-	1'179'648, 1'310'720, 1'441'792, 1'572'864, 1'703'936, 1'835'008, 1'966'080, 2'097'152 + sizeof(Heap::Storage), // 8
-	2'621'440, 3'145'728, 3'670'016, 4'194'304 + sizeof(Heap::Storage), // 4
-	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
-};
-
-static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array is wrong" );
-
-
 // Thread-local storage is allocated lazily when the storage is accessed.
-static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect false sharing
+static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
 static thread_local ThreadManager threadManager CALIGN TLSMODEL;
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
 #ifndef __OWNERSHIP__
