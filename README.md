@@ -19,10 +19,10 @@ creates 8 libraries that can be linked to a program to replace the default memor
 
 The Makefile has options for building.
 
-* __FASTLOOKUP__ (default) use O(1) table lookup from allocation size to bucket size for small allocations
-* __OWNERSHIP__	 (default) return freed memory to owner thread
-* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree queue
-* __NULL_0_ALLOC__ (default) return an allocation addresses for a 0-sized allocation rather than a null pointer
+* __FASTLOOKUP__ (default) use O(1) table lookup from allocation size to bucket size for small allocations.
+* __OWNERSHIP__	 (default) return freed memory to owner thread.
+* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree queue.
+* __NULL_0_ALLOC__ (default) return an allocation addresses for a 0-sized allocation rather than a null pointer.
 
 # Memory Allocator Design
 
@@ -40,12 +40,12 @@ The objectives of the llheap design are:
 
 ## Extended Features
 
-* `malloc` remembers the original allocation size separate from the actual allocation size
-* `calloc` sets the sticky zero-fill property
-* `memalign` sets the alignment sticky property, remembering the specified alignment size
-* `realloc` preserved all sticky properties when moving and increasing space
-* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic flag. Existence of shell variable LLHEAP_MALLOC_STATS implicitly calls malloc_stats at program termination.
-* `malloc_stats_clear` clears all thread statistic couters. llheap must be compiled with statistic flag.
+* `malloc` remembers the original allocation size separate from the actual allocation size.
+* `calloc` sets the sticky zero-fill property.
+* `memalign` sets the alignment sticky property, remembering the specified alignment size.
+* `realloc` preserved all sticky properties when moving and increasing space.
+* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic version. Existence of shell variable LLHEAP_MALLOC_STATS implicitly calls malloc_stats at program termination.
+* `malloc_stats_clear` clears all thread statistic couters. llheap must be compiled with statistic version.
 
 **Return:** side-effect of writing out statistics.
 
@@ -74,7 +74,7 @@ extends realloc for resizing an existing allocation *without* copying previous d
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
 
 ### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
-extends aalloc and memalign for allocating an aligned dynamic array of objects. Sets sticky alignment property
+extends aalloc and memalign for allocating an aligned dynamic array of objects. Sets sticky alignment property.
 
 **Parameters:**
 
@@ -110,7 +110,7 @@ extends reallocarray by realigning the old object to a new alignment requirement
 * `dimension`: number of array objects
 * `elemSize`: new size of array object (smaller or larger than previous)
 
-**Return:** address of the old or new storage with the specified new size or NULL if the resize fails. All sticky properties are preserved
+**Return:** address of the old or new storage with the specified new size or NULL if the resize fails. All sticky properties are preserved.
 
 ### `size_t malloc_alignment( void * addr )`
 returns the alignment of the dynamic object.
