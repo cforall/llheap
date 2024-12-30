@@ -1853,27 +1853,14 @@ extern "C" {
 	} // free
 
 
-	// Returns the alignment of an allocation.
-	size_t malloc_alignment( void * addr ) {
-	  if ( UNLIKELY( addr == nullptr ) ) return __ALIGN__; // minimum alignment
-		Heap::Storage::Header * header = HeaderAddr( addr );
-		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
-			return ClearAlignmentBit( header );			// clear flag from value
-		} else {
-			return __ALIGN__;							// minimum alignment
-		} // if
-	} // malloc_alignment
+	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
+	__attribute__((weak)) size_t malloc_expansion() { return __DEFAULT_HEAP_EXPANSION__; }
 
+	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
+	__attribute__((weak)) size_t malloc_mmap_start() { return __DEFAULT_MMAP_START__; }
 
-	// Returns true if the allocation is zero filled, e.g., allocated by calloc().
-	bool malloc_zero_fill( void * addr ) {
-	  if ( UNLIKELY( addr == nullptr ) ) return false;	// null allocation is not zero fill
-		Heap::Storage::Header * header = HeaderAddr( addr );
-		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
-			header = RealHeader( header );				// backup from fake to real header
-		} // if
-		return ZeroFillBit( header );					// zero filled ?
-	} // malloc_zero_fill
+	// Amount subtracted to adjust for unfreed program storage (debug only).
+	__attribute__((weak)) size_t malloc_unfreed() { return __DEFAULT_HEAP_UNFREED__; }
 
 
 	// Returns original total allocation size (not bucket size) => array size is dimension * sizeof(T).
@@ -1900,6 +1887,29 @@ extern "C" {
 	} // malloc_usable_size
 
 
+	// Returns the alignment of an allocation.
+	size_t malloc_alignment( void * addr ) {
+	  if ( UNLIKELY( addr == nullptr ) ) return __ALIGN__; // minimum alignment
+		Heap::Storage::Header * header = HeaderAddr( addr );
+		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
+			return ClearAlignmentBit( header );			// clear flag from value
+		} else {
+			return __ALIGN__;							// minimum alignment
+		} // if
+	} // malloc_alignment
+
+
+	// Returns true if the allocation is zero filled, e.g., allocated by calloc().
+	bool malloc_zero_fill( void * addr ) {
+	  if ( UNLIKELY( addr == nullptr ) ) return false;	// null allocation is not zero fill
+		Heap::Storage::Header * header = HeaderAddr( addr );
+		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
+			header = RealHeader( header );				// backup from fake to real header
+		} // if
+		return ZeroFillBit( header );					// zero filled ?
+	} // malloc_zero_fill
+
+
 	// Prints (on default standard error) statistics about memory allocated by malloc and related functions.
 	void malloc_stats() {
 		#ifdef __STATISTICS__
@@ -1919,7 +1929,7 @@ extern "C" {
 		#endif // __STATISTICS__
 	} // malloc_stats_clear
 
-	// Changes the file descriptor where malloc_stats() writes statistics.
+	// Set file descriptor where malloc_stats malloc_info writes statistics.
 	int malloc_stats_fd( int fd __attribute__(( unused )) ) {
 		#ifdef __STATISTICS__
 		int temp = heapMaster.stats_fd;
@@ -1943,7 +1953,7 @@ extern "C" {
 
 
 	// Prints an XML string that describes the current state of the memory-allocation implementation in the caller.
-	// The string is printed on the file stream stream.  The exported string includes information about all arenas (see
+	// The string is printed on the file stream.  The exported string includes information about all arenas (see
 	// malloc).
 	int malloc_info( int options, FILE * stream __attribute__(( unused )) ) {
 	  if ( options != 0 ) { errno = EINVAL; return -1; }
@@ -1993,16 +2003,6 @@ extern "C" {
 	int malloc_set_state( void * ) {
 		return 0;										// unsupported
 	} // malloc_set_state
-
-
-	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
-	__attribute__((weak)) size_t malloc_expansion() { return __DEFAULT_HEAP_EXPANSION__; }
-
-	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
-	__attribute__((weak)) size_t malloc_mmap_start() { return __DEFAULT_MMAP_START__; }
-
-	// Amount subtracted to adjust for unfreed program storage (debug only).
-	__attribute__((weak)) size_t malloc_unfreed() { return __DEFAULT_HEAP_UNFREED__; }
 } // extern "C"
 
 
