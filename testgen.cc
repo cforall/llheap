@@ -6,10 +6,11 @@ using namespace std;
 #include <string.h>										// strerror
 #include <malloc.h>										// malloc_stats
 #include <locale.h>										// setlocale
+#include <unistd.h>										// sleep
 #include <pthread.h>
 #include "affinity.h"
 
-extern "C" size_t malloc_mmap_start() { return 512 * 1024; } // smaller mmap crossover
+// llheap only
 extern "C" size_t malloc_unfreed() { return 5979; }		// printf(1024)/setlocale(4043)/pthread(3*304)
 
 timespec currTime() {
@@ -171,6 +172,8 @@ void * worker( void * ) {
 #endif // 0
 
 #if 1
+	sleep( 1 );											// cheap synchronize across threads
+
 	// mmap storage
 	enum { TIMES2 = TIMES / 1000, FIXED2 = 1 * 1024 * 1024 };
 	// Default allocator does not support malloc_mmap_start => hand code
@@ -238,7 +241,10 @@ void * worker( void * ) {
 } // worker
 
 int main( int argc, char * argv[] ) {
-	setlocale( LC_NUMERIC, getenv( "LANG" ) );
+	setlocale( LC_NUMERIC, getenv( "LANG" ) );			// separators in numbers
+	if ( mallopt( M_MMAP_THRESHOLD, 512 * 1024 ) == 0 ) { // smaller mmap crossover
+		printf( "M_MMAP_THRESHOLD unsupported\n" );
+	} // if
 
 #if 1
 	int Threads = 4;
