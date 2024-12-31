@@ -26,10 +26,16 @@ inline double dur( timespec end, timespec start ) {
 	return sec + nsec * 1E-9;
 } // dur
 
+static inline void * pass( void * v ) {					// prevent eliding, cheaper than volatile
+	__asm__ __volatile__ ( "" : "+r"(v) );
+	return v ;
+} // pass
+
+
 void * worker( void * ) {
-	enum { TIMES = 500'000'000, FIXED = 42, GROUP1 = 100, GROUP2 = 1000 };
+	enum { TIMES = 500'000'000, TIMES2 = TIMES / 1000, FIXED = 42, FIXED2 = 1 * 1024 * 1024, GROUP1 = 100, GROUP2 = 1000 };
 	timespec start;
-	int * volatile ip;
+	int * ip;
 	int * ips1[GROUP1], * ips2[GROUP2];
 
 	// sbrk storage
@@ -39,7 +45,7 @@ void * worker( void * ) {
 	// malloc/free 0/null pointer
 	start = currTime();
 	for ( int i = 0; i < TIMES; i += 1 ) {
-		void * volatile vp = (void *)malloc( 0 );		// warning: insufficient size '0' for type 'int'
+		void * vp = pass( malloc( 0 ) );				// warning: insufficient size '0' for type 'int'
 		free( vp );
 	} // for
 	printf( "x = malloc( 0 )/free( x )\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
@@ -48,14 +54,14 @@ void * worker( void * ) {
 	ip = nullptr;
 	start = currTime();
 	for ( int i = 0; i < TIMES; i += 1 ) {
-		free( ip );
+		free( pass( ip ) );
 	} // for
 	printf( "free( nullptr )\t\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
 
 	// alternating malloc/free FIXED bytes
 	start = currTime();
 	for ( int i = 0; i < TIMES; i += 1 ) {
-		ip = (int *)malloc( FIXED );
+		ip = (int *)pass( malloc( FIXED ) );
 		free( ip );
 	} // for
 	printf( "alternating malloc/free %'d bytes\t\t%7.3f seconds\n", FIXED, dur( currTime(), start ) );
@@ -66,7 +72,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( FIXED );
+			ips1[g] = (int *)pass( malloc( FIXED ) );
 		} // for
 		for ( int g = 0; g < GROUP1; g += 1 ) {
 			free( ips1[g] );
@@ -80,7 +86,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( FIXED );
+			ips2[g] = (int *)pass( malloc( FIXED ) );
 		} // for
 		for ( int g = 0; g < GROUP2; g += 1 ) {
 			free( ips2[g] );
@@ -92,7 +98,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( FIXED );
+			ips1[g] = (int *)pass( malloc( FIXED ) );
 		} // for
 		for ( int g = GROUP1 - 1; g >= 0; g -= 1 ) {
 			free( ips1[g] );
@@ -104,7 +110,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( FIXED );
+			ips2[g] = (int *)pass( malloc( FIXED ) );
 		} // for
 		for ( int g = GROUP2 - 1; g >= 0; g -= 1 ) {
 			free( ips2[g] );
@@ -116,7 +122,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ip = (int *)malloc( g );
+			ip = (int *)pass( malloc( g ) );
 			free( ip );
 		} // for
 	} // for
@@ -126,7 +132,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( g );
+			ips1[g] = (int *)pass( malloc( g ) );
 		} // for
 		for ( int g = 0; g < GROUP1; g += 1 ) {
 			free( ips1[g] );
@@ -138,7 +144,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( g );
+			ips2[g] = (int *)pass( malloc( g ) );
 		} // for
 		for ( int g = 0; g < GROUP2; g += 1 ) {
 			free( ips2[g] );
@@ -150,7 +156,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( g );
+			ips1[g] = (int *)pass( malloc( g ) );
 		} // for
 		for ( int g = GROUP1 - 1; g >= 0; g -= 1 ) {
 			free( ips1[g] );
@@ -162,7 +168,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( g );
+			ips2[g] = (int *)pass( malloc( g ) );
 		} // for
 		for ( int g = GROUP2 - 1; g >= 0; g -= 1 ) {
 			free( ips2[g] );
@@ -172,19 +178,16 @@ void * worker( void * ) {
 #endif // 0
 
 #if 1
-	sleep( 1 );											// cheap synchronize across threads
+	sleep( 2 );											// cheap synchronize across threads
 
 	// mmap storage
-	enum { TIMES2 = TIMES / 1000, FIXED2 = 1 * 1024 * 1024 };
-	// Default allocator does not support malloc_mmap_start => hand code
-	// const int FIXED2 = malloc_mmap_start();				// force mmapping of allocations
 
 	printf( "mmap area %'d time\n", TIMES2 );
 
 	// alternating malloc/free FIXED2 bytes
 	start = currTime();
 	for ( int i = 0; i < TIMES2; i += 1 ) {
-		ip = (int *)malloc( FIXED2 );
+		ip = (int *)pass( malloc( FIXED2 ) );
 		free( ip );
 	} // for
 	printf( "mmap alternating malloc/free %'d bytes\t%7.3f seconds\n", FIXED2, dur( currTime(), start ) );
@@ -193,7 +196,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( FIXED2 );
+			ips1[g] = (int *)pass( malloc( FIXED2 ) );
 		} // for
 		for ( int g = 0; g < GROUP1; g += 1 ) {
 			free( ips1[g] );
@@ -205,7 +208,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( FIXED2 );
+			ips2[g] = (int *)pass( malloc( FIXED2 ) );
 		} // for
 		for ( int g = 0; g < GROUP2; g += 1 ) {
 			free( ips2[g] );
@@ -217,7 +220,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( int g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)malloc( FIXED2 );
+			ips1[g] = (int *)pass( malloc( FIXED2 ) );
 		} // for
 		for ( int g = GROUP1 - 1; g >= 0; g -= 1 ) {
 			free( ips1[g] );
@@ -229,7 +232,7 @@ void * worker( void * ) {
 	start = currTime();
 	for ( int i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( int g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)malloc( FIXED2 );
+			ips2[g] = (int *)pass( malloc( FIXED2 ) );
 		} // for
 		for ( int g = GROUP2 - 1; g >= 0; g -= 1 ) {
 			free( ips2[g] );
@@ -280,7 +283,7 @@ int main( int argc, char * argv[] ) {
 	worker( nullptr );
 #endif // 0
 
-	malloc_stats();
+	// malloc_stats();
 } // main
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
