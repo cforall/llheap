@@ -48,7 +48,7 @@ void * worker( void * ) {
 		void * vp = pass( malloc( 0 ) );				// warning: insufficient size '0' for type 'int'
 		free( vp );
 	} // for
-	printf( "x = malloc( 0 )/free( x )\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
+	printf( "x = malloc( 0 )/free( x )\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
 
 	// free null pointer (CANNOT BE FIRST TEST BECAUSE HEAP IS NOT INITIALIZED => HIGH COST)
 	ip = nullptr;
@@ -56,7 +56,7 @@ void * worker( void * ) {
 	for ( int i = 0; i < TIMES; i += 1 ) {
 		free( pass( ip ) );
 	} // for
-	printf( "free( nullptr )\t\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
+	printf( "free( nullptr )\t\t\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
 
 	// alternating malloc/free FIXED bytes
 	start = currTime();
@@ -64,7 +64,7 @@ void * worker( void * ) {
 		ip = (int *)pass( malloc( FIXED ) );
 		free( ip );
 	} // for
-	printf( "alternating malloc/free %'d bytes\t\t%7.3f seconds\n", FIXED, dur( currTime(), start ) );
+	printf( "alternating malloc/free %'d bytes\t\t\t%7.3f seconds\n", FIXED, dur( currTime(), start ) );
 
 
 	// group malloc/free FIXED bytes
@@ -78,7 +78,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/free %'d bytes\t\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
+	printf( "group %'d malloc/free %'d bytes\t\t\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
 
 
 	// group malloc/free FIXED bytes
@@ -92,7 +92,7 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/free %'d bytes\t\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
+	printf( "group %'d malloc/free %'d bytes\t\t\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
 
 	// group malloc/reverse-free FIXED bytes
 	start = currTime();
@@ -104,7 +104,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/reverse-free %'d bytes\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
+	printf( "group %'d malloc/reverse-free %'d bytes\t\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
 
 	// group malloc/reverse-free FIXED bytes
 	start = currTime();
@@ -116,7 +116,7 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/reverse-free %'d bytes\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
+	printf( "group %'d malloc/reverse-free %'d bytes\t\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
 
 	// alternating malloc/free 1-GROUP1 bytes
 	start = currTime();
@@ -126,7 +126,7 @@ void * worker( void * ) {
 			free( ip );
 		} // for
 	} // for
-	printf( "alternating malloc/free 1-%'d bytes\t\t%7.3f seconds\n", GROUP1, dur( currTime(), start ) );
+	printf( "alternating malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP1, dur( currTime(), start ) );
 
 	// group malloc/free 1-GROUP1 bytes
 	start = currTime();
@@ -138,7 +138,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/free 1-%'d bytes\t\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
+	printf( "group %'d malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
 
 	// group malloc/free 1-GROUP2 bytes
 	start = currTime();
@@ -150,7 +150,7 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/free 1-%'d bytes\t\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
+	printf( "group %'d malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
 
 	// group malloc/reverse-free 1-GROUP1 bytes
 	start = currTime();
@@ -162,7 +162,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/reverse-free 1-%'d bytes\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
+	printf( "group %'d malloc/reverse-free 1-%'d bytes\t\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
 
 	// group malloc/reverse-free 1-GROUP2 bytes
 	start = currTime();
@@ -174,11 +174,11 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "group %'d malloc/reverse-free 1-%'d bytes\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
+	printf( "group %'d malloc/reverse-free 1-%'d bytes\t\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
 #endif // 0
 
 #if 1
-	sleep( 2 );											// cheap synchronize across threads
+	sleep( 5 );											// cheap synchronize between sbrk/mmap experiments
 
 	// mmap storage
 
@@ -190,7 +190,7 @@ void * worker( void * ) {
 		ip = (int *)pass( malloc( FIXED2 ) );
 		free( ip );
 	} // for
-	printf( "mmap alternating malloc/free %'d bytes\t%7.3f seconds\n", FIXED2, dur( currTime(), start ) );
+	printf( "mmap alternating malloc/free %'d bytes\t\t%7.3f seconds\n", FIXED2, dur( currTime(), start ) );
 
 	// group malloc/free FIXED2 bytes
 	start = currTime();
@@ -202,7 +202,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/free %'d bytes\t%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/free %'d bytes\t\t%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
 
 	// group malloc/free FIXED2 bytes
 	start = currTime();
@@ -214,7 +214,7 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/free %'d bytes\t%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/free %'d bytes\t\t%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
 
 	// group malloc/reverse-free FIXED2 bytes
 	start = currTime();
@@ -226,7 +226,7 @@ void * worker( void * ) {
 			free( ips1[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/reverse-free %'d bytes %7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/reverse-free %'d bytes \t%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
 
 	// group malloc/reverse-free FIXED2 bytes
 	start = currTime();
@@ -238,7 +238,7 @@ void * worker( void * ) {
 			free( ips2[g] );
 		} // for
 	} // for
-	printf( "mmap group %'d malloc/reverse-free %'d bytes %7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
+	printf( "mmap group %'d malloc/reverse-free %'d bytes \t%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
 #endif // 0
 	return nullptr;
 } // worker
