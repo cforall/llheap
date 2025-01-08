@@ -13,9 +13,9 @@ if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then
     cflag=${cflag}" ${atomicinst}"
 fi
 
-if [ "${hostname}" = "swift" -o "${hostname}" = "java" ] ; then # Ubuntu 24.04
+if [ "${hostname}" = "swift" -o "${hostname}" = "java" -o "${hostname}" = "prolog" ] ; then # Ubuntu 24.04
     CC=g++-14
-elif [ "${hostname}" = "prolog" ] ; then # Ubuntu 22.04
+elif [ "${hostname}" = "xxx" ] ; then # Ubuntu 22.04
     CC=g++-12
 else
     CC=g++-11
