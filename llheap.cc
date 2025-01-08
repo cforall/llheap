@@ -688,7 +688,8 @@ Heap * HeapMaster::getHeap() {
 				.homeManager = heap,
 				.blockSize = bucketSizes[j],
 				#if defined( __STATISTICS__ )
-				.allocations = 0, .reuses = 0,
+				.allocations = 0,
+				.reuses = 0,
 				#endif // __STATISTICS__
 			};
 		} // for
@@ -729,7 +730,7 @@ static void heapManagerCtor() {
 
 
 static void heapManagerDtor() {
-	spin_acquire( &heapMaster.mgrLock );
+	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
 	// push heap onto list of free heaps for reusability
 	heapManager->nextFreeHeapManager = heapMaster.freeHeapManagersList;
@@ -764,14 +765,14 @@ static void heapManagerDtor() {
 //####################### Memory Allocation Routines Helpers ####################
 
 
-NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor )
+NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor ) // singleton => called once at start of program
 	if ( ! heapMasterBootFlag ) { heapManagerCtor(); }	// sanity check
 	#ifdef __DEBUG__
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
 	#endif // __DEBUG__
 } // startup
 
-NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor )
+NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor ) // singleton => called once at end of program
 	if ( getenv( "MALLOC_STATS" ) ) {					// check for external printing
 		malloc_stats();
 
@@ -896,7 +897,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	"<total type=\"heaps\" new=\"%'llu;\" reused=\"%'llu\"/>\n" \
 	"</malloc>"
 
-static int printStatsXML( HeapStatistics & stats, FILE * stream ) {	// see malloc_info
+static int printStatsXML( HeapStatistics & stats, FILE * stream ) { // see malloc_info
 	char helpText[sizeof(prtFmtXML) + 1024];			// space for message and values
 	int len = snprintf( helpText, sizeof(helpText), prtFmtXML,
 			stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
@@ -1219,7 +1220,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		// The checking order for freed storage versus bump storage has a performance difference, if there are lots of
 		// allocations before frees. The following checks for freed storage first in an attempt to reduce the storage
 		// footprint, i.e., starting using freed storage before using all the free block.
-		
+
 		block = freeHead->freeList;						// remove node from stack
 		if ( LIKELY( block != nullptr ) ) {				// free block ?
 			// Get storage from the corresponding free list.
