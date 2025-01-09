@@ -31,6 +31,8 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 	return v ;
 } // pass
 
+pthread_barrier_t barrier;
+
 
 void * worker( void * ) {
 	enum { TIMES = 500'000'000, TIMES2 = TIMES / 1000, FIXED = 42, FIXED2 = 1 * 1024 * 1024, GROUP1 = 100, GROUP2 = 1000 };
@@ -49,6 +51,7 @@ void * worker( void * ) {
 		free( vp );
 	} // for
 	printf( "x = malloc( 0 )/free( x )\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 
 	// free null pointer (CANNOT BE FIRST TEST BECAUSE HEAP IS NOT INITIALIZED => HIGH COST)
 	ip = nullptr;
@@ -57,6 +60,7 @@ void * worker( void * ) {
 		free( pass( ip ) );
 	} // for
 	printf( "free( nullptr )\t\t\t\t\t\t%7.3f seconds\n", dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 
 	// alternating malloc/free FIXED bytes
 	start = currTime();
@@ -65,6 +69,7 @@ void * worker( void * ) {
 		free( ip );
 	} // for
 	printf( "alternating malloc/free %'d bytes\t\t\t%7.3f seconds\n", FIXED, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 
 
 	// group malloc/free FIXED bytes
@@ -79,6 +84,7 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/free %'d bytes\t\t\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 
 
 	// group malloc/free FIXED bytes
@@ -93,6 +99,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/free %'d bytes\t\t\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free FIXED bytes
 	start = currTime();
@@ -105,6 +113,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/reverse-free %'d bytes\t\t\t%7.3f seconds\n", GROUP1, FIXED, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free FIXED bytes
 	start = currTime();
@@ -117,6 +127,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/reverse-free %'d bytes\t\t%7.3f seconds\n", GROUP2, FIXED, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// alternating malloc/free 1-GROUP1 bytes
 	start = currTime();
@@ -127,6 +139,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "alternating malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP1, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/free 1-GROUP1 bytes
 	start = currTime();
@@ -139,6 +153,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/free 1-GROUP2 bytes
 	start = currTime();
@@ -151,6 +167,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/free 1-%'d bytes\t\t\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free 1-GROUP1 bytes
 	start = currTime();
@@ -163,6 +181,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/reverse-free 1-%'d bytes\t\t%7.3f seconds\n", GROUP1, GROUP1, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free 1-GROUP2 bytes
 	start = currTime();
@@ -175,11 +195,10 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "group %'d malloc/reverse-free 1-%'d bytes\t\t%7.3f seconds\n", GROUP2, GROUP2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 #endif // 0
 
 #if 1
-	sleep( 5 );											// cheap synchronize between sbrk/mmap experiments
-
 	// mmap storage
 
 	printf( "mmap area %'d time\n", TIMES2 );
@@ -191,6 +210,8 @@ void * worker( void * ) {
 		free( ip );
 	} // for
 	printf( "mmap alternating malloc/free %'d bytes\t\t%7.3f seconds\n", FIXED2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/free FIXED2 bytes
 	start = currTime();
@@ -203,6 +224,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "mmap group %'d malloc/free %'d bytes\t\t%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/free FIXED2 bytes
 	start = currTime();
@@ -215,6 +238,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "mmap group %'d malloc/free %'d bytes\t\t%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free FIXED2 bytes
 	start = currTime();
@@ -227,6 +252,8 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "mmap group %'d malloc/reverse-free %'d bytes \t%7.3f seconds\n", GROUP1, FIXED2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
+
 
 	// group malloc/reverse-free FIXED2 bytes
 	start = currTime();
@@ -239,6 +266,7 @@ void * worker( void * ) {
 		} // for
 	} // for
 	printf( "mmap group %'d malloc/reverse-free %'d bytes \t%7.3f seconds\n", GROUP2, FIXED2, dur( currTime(), start ) );
+	pthread_barrier_wait( &barrier );
 #endif // 0
 	return nullptr;
 } // worker
@@ -263,11 +291,13 @@ int main( int argc, char * argv[] ) {
 	} // try
 	printf( "Number of Threads: %d\n\n", Threads );
 
-	pthread_t thread[Threads];							// thread[0] unused
-
 	cpu_set_t mask;
 	affinity( 0, mask );
 	if ( pthread_setaffinity_np( pthread_self(), sizeof(cpu_set_t), &mask ) ) abort();
+
+	if ( pthread_barrier_init( &barrier, nullptr, Threads ) ) abort();
+
+	pthread_t thread[Threads];							// thread[0] unused
 	for ( int tid = 1; tid < Threads; tid += 1 ) {		// N - 1 thread
 		if ( pthread_create( &thread[tid], NULL, worker, NULL) < 0 ) abort();
 		affinity( tid, mask );
@@ -279,6 +309,8 @@ int main( int argc, char * argv[] ) {
 	for ( int tid = 1; tid < Threads; tid += 1 ) {
 		if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
 	} // for
+
+	if ( pthread_barrier_destroy( &barrier ) ) abort();
 #else
 	worker( nullptr );
 #endif // 0
