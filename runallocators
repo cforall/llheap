@@ -25,12 +25,14 @@ rm -rf core
 
 # strace="strace -cfq"
 
+threads=4
+
 echo -n "\n**********************\nglibc\n**********************\n\n"
 echo -n "${CC} ${cflag} testgen.cc -lpthread\n\n"
 ${CC} ${cflag} testgen.cc -lpthread
 echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
-${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec}
+${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec} ${threads}
 
 for allocator in ${allocators} ; do
     echo -n "\n**********************\n${allocator}\n**********************\n\n"
@@ -46,7 +48,7 @@ for allocator in ${allocators} ; do
     export LD_PRELOAD=${allocsdir}/${allocator}
 
     # kill pid for a.out to terminate
-    ${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec}
+    ${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec} ${threads}
 done
 
 rm -f "${exec}"
