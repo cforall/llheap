@@ -46,7 +46,7 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 static pthread_barrier_t barrier;
 
-enum : uint64_t { TIMES = 5'000'000'0, TIMES2 = TIMES / 5'000 };
+enum : uint64_t { TIMES = 5'000'000'000, TIMES2 = TIMES / 5'000 };
 #define FIXED 42
 #define FIXED2 1'048'576
 #define GROUP1 100
