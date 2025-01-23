@@ -23,16 +23,25 @@ fi
 
 rm -rf core
 
-# strace="strace -cfq"
+if [ "${hostname}" = "swift" ] ; then
+    taskset="taskset --cpu-list 128"
+elif [ "${hostname}" = "java" ] ; then
+    taskset="taskset --cpu-list 32"
+elif [ "${hostname}" = "prolog" ] ; then
+    taskset="taskset --cpu-list 64"
+else
+    echo "unknown machine name"
+    exit -1
+fi
 
-threads=4
+# strace="strace -cfq"
 
 echo -n "\n**********************\nglibc\n**********************\n\n"
 echo -n "${CC} ${cflag} testgen.cc -lpthread\n\n"
 ${CC} ${cflag} testgen.cc -lpthread
 echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
-${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec} ${threads}
+${strace} ${taskset} ./${exec}
 
 for allocator in ${allocators} ; do
     echo -n "\n**********************\n${allocator}\n**********************\n\n"
@@ -48,7 +57,7 @@ for allocator in ${allocators} ; do
     export LD_PRELOAD=${allocsdir}/${allocator}
 
     # kill pid for a.out to terminate
-    ${strace} /usr/bin/time -f "%Uu %Ss %Er %Mkb" ./${exec} ${threads}
+    ${strace} ${taskset} ./${exec}
 done
 
 rm -f "${exec}"
