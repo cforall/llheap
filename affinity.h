@@ -3,15 +3,14 @@
 #include <stdlib.h>										// exit, EXIT_FAILURE
 
 void affinity( pthread_t pthreadid, unsigned int tid ) {
-// There are many ways to assign threads to processors: cores, chips, etc.
-// On the AMD, we find starting at core 32 and sequential assignment is sufficient.
-// Below are alternative approaches.
+// There are many ways to assign threads to processors: cores, chips, etc.  Below are some alternative approaches.
+
+//#define LINEARAFF
+#if ! defined( HYPERAFF ) && ! defined( LINEARAFF )		// default affinity
+#define HYPERAFF
+#endif // HYPERAFF
 
 #if defined( nasus )
-	#if ! defined( HYPERAFF ) && ! defined( LINEARAFF )		// default affinity
-	#define HYPERAFF
-	#endif // HYPERAFF
-
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -20,10 +19,6 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS);
 	#endif // HYPERAFF
 #elif defined( swift )
-	#if ! defined( HYPERAFF ) && ! defined( LINEARAFF )	     // default affinity
-	#define HYPERAFF
-	#endif // HYPERAFF
-
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 128, HYPER = 1 };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -32,10 +27,6 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS);
 	#endif // HYPERAFF
 #elif defined( java )
-	#if ! defined( HYPERAFF ) && ! defined( LINEARAFF )		// default affinity
-	#define HYPERAFF
-	#endif // HYPERAFF
-
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 32, HYPER = 1 /* wrap on socket */ };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -44,10 +35,6 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS );
 	#endif // HYPERAFF
 #elif defined( pyke )
-	#if ! defined( HYPERAFF ) && ! defined( LINEARAFF )		// default affinity
-	#define HYPERAFF
-	#endif // HYPERAFF
-
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 24, HYPER = 1 /* wrap on socket */ };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -56,12 +43,9 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS );
 	#endif // HYPERAFF
 #else
+	// HYPERAFF unsupported for these architectures.
+	#define LINEARAFF
 
-#if defined( HYPERAFF )
-	#error HYPERAFF unsupported for this architecture.
-#endif // HYPERAFF
-
-#define LINEARAFF
 #if defined( plg2 )									// old AMD
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 16, HYPER = 1 };
 	tid *= 8; // seperate caches
