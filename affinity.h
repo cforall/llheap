@@ -52,11 +52,11 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 #elif defined( algol )								// ARM
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 48, HYPER = 1 };
 #elif defined( prolog )								// ARM
-	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 }; // pretend 2 sockets
+	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 }; // pretend 2 sockets
 #elif defined( nasus )								// AMD
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 };
 #elif defined( jax )								// Intel
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 4, CORES = 24, HYPER = 2 /* wrap on socket */ };
+	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 4, CORES = 24, HYPER = 2 }; // wrap on socket
 #elif defined( cfapi1 )								// raspberrypi
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 4, HYPER = 1 };
 #else // default
