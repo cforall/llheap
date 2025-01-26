@@ -5,7 +5,7 @@ hostname=`hostname`
 echo -n "\n======================\n${hostname}\n======================\n"
 
 allocsdir="${HOME}/software/allocators"
-allocators="libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so.4" # librpmalloc.so
+allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
 cflag="-g -O3 -Wall -Wextra -Wall -Wextra -Werror -D${hostname}" #
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
@@ -29,6 +29,8 @@ elif [ "${hostname}" = "java" ] ; then
     taskset="taskset --cpu-list 32"
 elif [ "${hostname}" = "prolog" ] ; then
     taskset="taskset --cpu-list 64"
+elif [ "${hostname}" = "algol" ] ; then
+    taskset="taskset --cpu-list 48"
 else
     echo "unknown machine name"
     exit -1
