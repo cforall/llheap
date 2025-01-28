@@ -611,8 +611,8 @@ int main() {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/software/llheap -L/u/pabuhr/software/llheap
+// g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread -Wl,-rpath=${HOME}/software/allocators/libjemalloc.so 
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 -D`hostname` testgen.cc libllheap.o -lpthread" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread libllheap.o" //
 // End: //
