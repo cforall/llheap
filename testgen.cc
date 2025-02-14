@@ -545,6 +545,13 @@ int main() {
 		} // for
 	} // for
 
+	#if defined( HYPERAFF )
+	printf( "HYPERAFF affinity\n" );
+	#elif defined( LINEARAFF )
+	printf( "LINEARAFF affinity\n" );
+	#else
+		#error no affinity specified
+	#endif
 	printf( "sbrk area %lu times\n", TIMES );
 	printf( "mmap area %lu time\n\n", TIMES2 );
 
