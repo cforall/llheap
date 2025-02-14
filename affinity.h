@@ -5,7 +5,7 @@
 void affinity( pthread_t pthreadid, unsigned int tid ) {
 // There are many ways to assign threads to processors: cores, chips, etc.  Below are some alternative approaches.
 
-#define LINEARAFF
+//#define LINEARAFF
 #if ! defined( HYPERAFF ) && ! defined( LINEARAFF )		// default affinity
 #define HYPERAFF
 #endif // HYPERAFF
