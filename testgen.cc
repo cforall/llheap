@@ -13,7 +13,6 @@ using namespace std;
 #include <sys/time.h>									// gettimeofday
 #include <sys/resource.h>								// getrusage
 #include <pthread.h>
-#include "affinity.h"
 
 
 // Select the form of affinity across the processors.  In general, allocation benchmarks give better performance with
@@ -24,6 +23,7 @@ using namespace std;
 
 // LINEARAFF => do not use hyperthreading and fill cores on a socket => 129, 130, 131, 132, ...
 #define LINEARAFF
+#include "affinity.h"
 
 
 #define str( s ) #s
