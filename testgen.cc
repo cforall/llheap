@@ -15,6 +15,17 @@ using namespace std;
 #include <pthread.h>
 #include "affinity.h"
 
+
+// Select the form of affinity across the processors.  In general, allocation benchmarks give better performance with
+// LINEARAFF because the L1 cache is not shared. With hyperthreading, the L1 cache is shared on certain architectures.
+
+// HYPERAFF => use hyperthreads and fill in pairs of processors on a socket => 129,384, 129,385, ...
+//#define HYPERAFF
+
+// LINEARAFF => do not use hyperthreading and fill cores on a socket => 129, 130, 131, 132, ...
+#define LINEARAFF
+
+
 #define str( s ) #s
 #define xstr(s) str(s)
 
@@ -97,6 +108,9 @@ static const char * titles[] = {
 	"mmap group " xstr(GROUP2) " malloc/reverse-free " xstr(FIXED2) " bytes\t",
 };
 
+timeval puser = { 0, 0 }, psys = { 0, 0 };
+
+
 static void * worker( void * arg ) {
 	uintptr_t tid = (uintptr_t)arg;						// thread id
 	timespec start;
@@ -108,8 +122,9 @@ static void * worker( void * arg ) {
 	// sbrk storage
 
 #if 1
-	struct timeval begin, now;
-	gettimeofday( &begin, 0 );
+	struct rusage rnow;
+	struct timeval tbegin, tnow;						// there is no real time in getrusage
+	gettimeofday( &tbegin, 0 );
 
 	// malloc/free 0/null pointer
 	start = currTime();
@@ -369,16 +384,18 @@ static void * worker( void * arg ) {
 	#endif // RANDOM
 #endif // 0
 
-	gettimeofday( &now, 0 );
-	struct rusage rend;
-	getrusage( RUSAGE_SELF, &rend );
-	timeval rstart = { 0, 0 };
-	if ( tid == 0 ) printf( "\n%.2fu %.2fs %.2fr %ldkb\n", dur( rend.ru_utime, rstart ), dur( rend.ru_stime, rstart ), dur( now, begin ), rend.ru_maxrss );
+	gettimeofday( &tnow, 0 );
+	getrusage( RUSAGE_SELF, &rnow );
+	if ( tid == 0 ) {
+		printf( "\n%.2fu %.2fs %.2fr %ldkb\n",
+				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
+		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
+	} // if
 
 #if 1
 	// mmap storage
 
-	gettimeofday( &begin, 0 );
+	gettimeofday( &tbegin, 0 );
 
 	// alternate malloc/free FIXED2 bytes
 	start = currTime();
@@ -457,9 +474,14 @@ static void * worker( void * arg ) {
 
 	assert( exp == EXPERIMENTS );
 
-	gettimeofday( &now, 0 );
-	getrusage( RUSAGE_SELF, &rend );
-	if ( tid == 0 ) printf( "\n%.2fu %.2fs %.2fr %ldkb\n", dur( rend.ru_utime, rstart ), dur( rend.ru_stime, rstart ), dur( now, begin ), rend.ru_maxrss );
+	gettimeofday( &tnow, 0 );
+	getrusage( RUSAGE_SELF, &rnow );
+	if ( tid == 0 ) {
+		printf( "\n%.2fu %.2fs %.2fr %ldkb\n",
+				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
+		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
+	} // if
+
 #endif // 0
 	return nullptr;
 } // worker
