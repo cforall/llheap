@@ -566,9 +566,6 @@ static HeapMaster heapMaster;							// program global
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
 static thread_local ThreadManager threadManager CALIGN TLSMODEL;
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
-#ifndef __OWNERSHIP__
-static thread_local Heap * shadow_heap CALIGN TLSMODEL;
-#endif // ! __OWNERSHIP__
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
@@ -680,13 +677,14 @@ Heap * HeapMaster::getHeap() {
 				#ifdef __OWNERSHIP__
 				#ifdef __RETURNSPIN__
 				.returnLock = 0,
-				.returnList = nullptr,
 				#endif // __RETURNSPIN__
+				.returnList = nullptr,
 				#endif // __OWNERSHIP__
 
 				.freeList = nullptr,
 				.homeManager = heap,
 				.blockSize = bucketSizes[j],
+
 				#if defined( __STATISTICS__ )
 				.allocations = 0,
 				.reuses = 0,
@@ -753,11 +751,8 @@ static void heapManagerDtor() {
 	// heapManager being null. The trick is for this thread to place the last free onto the current heap's return-list as
 	// the free-storage header points are this heap. Now, even if other threads are pushing to the return list, it is safe
 	// because of the locking.
-	#ifndef __OWNERSHIP__
-	shadow_heap = heapManager;
-	#endif // ! __OWNERSHIP__
 
-	heapManager = nullptr;							// => heap not in use
+	heapManager = nullptr;								// => heap not in use
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
 
@@ -1256,8 +1251,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				#endif // __STATISTICS__
 
 				freeHead->freeList = block->header.kind.real.next; // merge returnList into freeHead
-			} else {
 			#endif // __OWNERSHIP__
+			} else {
 				// Get storage from a *new* free block using bump alocation.
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 
@@ -1265,9 +1260,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
 				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
-			#ifdef __OWNERSHIP__
 			} // if
-			#endif // __OWNERSHIP__
 
 			#ifdef __STATISTICS__
 			freeHead->allocations += 1;
@@ -1322,7 +1315,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 
 static inline __attribute__((always_inline)) void doFree( void * addr ) {
-	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
+	#if defined( __STATISTICS__ ) || defined( __DEBUG__ ) || ! defined( __OWNERSHIP__ )
 	// A thread can run without a heap, and hence, have an uninitialized heapManager. For example, in the ownership
 	// program, the consumer thread does not allocate storage, it only frees storage back to the owning producer
 	// thread. Hence, the consumer never calls doMalloc to trigger heap creation for its thread. However, this situation
@@ -1373,7 +1366,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			#else										// lock free
 			header->kind.real.next = freeHead->returnList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->returnList on failure
-			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap.Storage *)header,
+			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap::Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
 			#endif // __RETURNSPIN__
 
