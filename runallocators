@@ -2,27 +2,34 @@
 
 exec=a.out
 hostname=`hostname`
-echo -n "\n======================\n${hostname}\n======================\n"
+echo -n "======================\n${hostname}\n======================\n"
 
 allocsdir="${HOME}/software/allocators"
 allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+
 cflag="-g -O3 -Wall -Wextra -Wall -Wextra -Werror -D${hostname}" #
-if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then
+if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
     atomicinst=-march=armv8.2-a+lse
     cflag=${cflag}" ${atomicinst}"
 fi
 
-if [ "${hostname}" = "swift" -o "${hostname}" = "java" -o "${hostname}" = "prolog" ] ; then # Ubuntu 24.04
+# select newest compiler available for OS
+osversion=`lsb_release -sr`
+if [ "${osversion}" = "24.04" ] ; then
     CC=g++-14
-elif [ "${hostname}" = "xxx" ] ; then # Ubuntu 22.04
+elif [ "${osversion}" = "22.04" ] ; then
     CC=g++-12
-else
+elif [ "${osversion}" = "20.04" ] ; then
     CC=g++-11
+else
+    echo "unknown operating system"
+    exit -1
 fi
 
 rm -rf core
 
+# force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" ] ; then
     taskset="taskset --cpu-list 128"
 elif [ "${hostname}" = "java" ] ; then
@@ -37,29 +44,31 @@ else
 fi
 
 # strace="strace -cfq"
+#time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
+program="testgen" # ownership
 
 echo -n "\n**********************\nglibc\n**********************\n\n"
-echo -n "${CC} ${cflag} testgen.cc -lpthread\n\n"
-${CC} ${cflag} testgen.cc -lpthread
+echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
+${CC} ${cflag} ${program}.cc -lpthread
 echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
-${strace} ${taskset} ./${exec}
+eval ${time} ${strace} ${taskset} ./${exec}
 
 for allocator in ${allocators} ; do
     echo -n "\n**********************\n${allocator}\n**********************\n\n"
 
     # compile without preload for checking => dynamic linking
-    # echo -n "${CC} ${cflag} testgen.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
-    # ${CC} ${cflag} testgen.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
+    # echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
+    # ${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
     # echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 
     # compile with preload => dynamic linking
-    echo -n "${CC} ${cflag} testgen.cc ${allocsdir}/${allocator} -lpthread\n\n"
-    ${CC} ${cflag} testgen.cc ${allocsdir}/${allocator} -lpthread
+    echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread\n\n"
+    ${CC} ${cflag} ${program}.cc -lpthread ${allocsdir}/${allocator}
     export LD_PRELOAD=${allocsdir}/${allocator}
 
     # kill pid for a.out to terminate
-    ${strace} ${taskset} ./${exec}
+    eval ${time} ${strace} ${taskset} ./${exec}
 done
 
 rm -f "${exec}"
