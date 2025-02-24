@@ -1,15 +1,14 @@
 #include <string>										// stoi
 using namespace std;
 // Use C I/O because cout does not provide a good mechanism for thread-safe I/O.
-#include <stdlib.h>										// abort, getenv, EXIT_FAILURE
-#include <errno.h>										// errno
-#include <string.h>										// strerror
+#include <cstdlib>										// abort, getenv, EXIT_FAILURE
+#include <cerrno>										// errno
+#include <cstring>										// strerror
 #include <malloc.h>										// malloc_stats
-#include <unistd.h>										// sleep
-#include <math.h>										// sqrt
-#include <assert.h>										// sleep
-#include <stdint.h>										// uintptr_t
-#include <time.h>										// clock
+#include <cmath>										// sqrt
+#include <cassert>										// assert
+#include <cstdint>										// uintptr_t
+#include <ctime>										// clock
 #include <sys/time.h>									// gettimeofday
 #include <sys/resource.h>								// getrusage
 #include <pthread.h>
@@ -161,7 +160,6 @@ static void * worker( void * arg ) {
 
 
 	// group malloc/free FIXED bytes
-
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
@@ -178,7 +176,6 @@ static void * worker( void * arg ) {
 
 
 	// group malloc/free FIXED bytes
-
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
@@ -640,7 +637,7 @@ int main() {
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
 
-// g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread -Wl,-rpath=${HOME}/software/allocators/libjemalloc.so 
+// g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread ${HOME}/software/allocators/libllheap.so -Wl,-rpath=${HOME}/software/allocators
 
 // Local Variables: //
 // compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread libllheap.o" //

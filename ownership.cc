@@ -64,7 +64,7 @@ template<typename T> class BoundedBuffer {				// barging
 enum { BufSize = 10'000, ElemSize = 64 };
 BoundedBuffer<char *> buffer( BufSize );
 
-enum { N = 5'000'000 };
+enum { N = 50'000'000 };
 
 void * Prod( void * ) {
 	for ( unsigned int i = 0; i < N; i += 1 ) {
@@ -84,33 +84,28 @@ void * Cons( void * ) {
 	return nullptr;
 };
 
-extern "C" size_t malloc_unfreed() { return 4 * 304 /* pthreads */; }
+extern "C" size_t malloc_unfreed() { return 4 * 312 /* pthreads */; }
 
 int main() {
 	pthread_t prod1, prod2, cons1, cons2;
-	cpu_set_t mask;
 
 	if ( pthread_create( &cons1, NULL, Cons, NULL ) < 0 ) abort();
-	affinity( 0, mask );
-	if ( pthread_setaffinity_np( cons1, sizeof(cpu_set_t), &mask ) ) abort();
+	affinity( cons1, 0 );
 
 	if ( pthread_create( &cons2, NULL, Cons, NULL ) < 0 ) abort();
-	affinity( 1, mask );
-	if ( pthread_setaffinity_np( cons2, sizeof(cpu_set_t), &mask ) ) abort();
+	affinity( cons2, 1 );
 
 	if ( pthread_create( &prod1, NULL, Prod, NULL ) < 0 ) abort();
-	affinity( 2, mask );
-	if ( pthread_setaffinity_np( prod1, sizeof(cpu_set_t), &mask ) ) abort();
+	affinity( prod1, 2 );
 
 	if ( pthread_create( &prod2, NULL, Prod, NULL ) < 0 ) abort();
-	affinity( 3, mask );
-	if ( pthread_setaffinity_np( prod2, sizeof(cpu_set_t), &mask ) ) abort();
+	affinity( prod2, 3 );
 
 	if ( pthread_join( prod2, NULL ) < 0 ) abort();
 	if ( pthread_join( prod1, NULL ) < 0 ) abort();
 	if ( pthread_join( cons1, NULL ) < 0 ) abort();
 	if ( pthread_join( cons2, NULL ) < 0 ) abort();
-	malloc_stats();
+	// malloc_stats();
 }
 
 // repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
