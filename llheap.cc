@@ -1837,7 +1837,7 @@ extern "C" {
 		// Detect free after thread-local storage destruction and use global stats in that case.
 	  if ( UNLIKELY( addr == nullptr ) ) {				// special case
 			#ifdef __STATISTICS__
-			if ( LIKELY( heapManager ) ) heapManager->stats.free_null_0_calls += 1;
+			if ( LIKELY( heapManager > (Heap *)1 ) ) heapManager->stats.free_null_0_calls += 1;
 			else AtomicFetchAdd( heapMaster.stats.free_null_0_calls, 1 );
 			#endif // __STATISTICS__
 			return;
