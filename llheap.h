@@ -21,6 +21,7 @@ extern "C" {
 	size_t malloc_size( void * addr );					// object's request size, malloc_size <= malloc_usable_size
 	size_t malloc_alignment( void * addr );				// object alignment 
 	bool malloc_zero_fill( void * addr );				// true if object is zero filled
+	bool malloc_remote( void * addr );					// true if object is remote
 
 	// Statistics
 	int malloc_stats_fd( int fd );						// file descriptor global malloc_stats() writes (default stdout)

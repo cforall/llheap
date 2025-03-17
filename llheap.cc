@@ -23,10 +23,10 @@
 
 #define __FASTLOOKUP__	// use O(1) table lookup from allocation size to bucket size for small allocations
 #define __OWNERSHIP__	// return freed memory to owner thread
-#define __RETURNSPIN__	// toggle spinlock / lockfree queue
-#if ! defined( __OWNERSHIP__ ) && defined( __RETURNSPIN__ )
-#warning "RETURNSPIN is ignored without OWNERSHIP; suggest commenting out RETURNSPIN"
-#endif // ! __OWNERSHIP__ && __RETURNSPIN__
+//#define __REMOTESPIN__	// toggle spinlock / lockfree queue
+#if ! defined( __OWNERSHIP__ ) && defined( __REMOTESPIN__ )
+#warning "REMOTESPIN is ignored without OWNERSHIP; suggest commenting out REMOTESPIN"
+#endif // ! __OWNERSHIP__ && __REMOTESPIN__
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -334,8 +334,8 @@ struct HeapStatistics {
 			unsigned long long int realloc_align, realloc_0_fill;
 			unsigned long long int free_calls, free_null_0_calls;
 			unsigned long long int free_storage_request, free_storage_alloc;
-			unsigned long long int return_pushes, return_pulls;
-			unsigned long long int return_storage_request, return_storage_alloc;
+			unsigned long long int remote_pushes, remote_pulls;
+			unsigned long long int remote_storage_request, remote_storage_alloc;
 			unsigned long long int mmap_calls, mmap_0_calls; // no zero calls
 			unsigned long long int mmap_storage_request, mmap_storage_alloc;
 			unsigned long long int munmap_calls, munmap_0_calls; // no zero calls
@@ -409,10 +409,10 @@ struct Heap {
 
 	struct CALIGN FreeHeader {
 		#ifdef __OWNERSHIP__
-		#ifdef __RETURNSPIN__
-		SpinLock_t returnLock;
-		#endif // __RETURNSPIN__
-		Storage * returnList;							// other thread return list
+		#ifdef __REMOTESPIN__
+		SpinLock_t remoteLock;
+		#endif // __REMOTESPIN__
+		Storage * remoteList;							// other thread remote list
 		#endif // __OWNERSHIP__
 
 		Storage * freeList;								// thread free list
@@ -675,10 +675,10 @@ Heap * HeapMaster::getHeap() {
 		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
 			heap->freeLists[j] = (Heap::FreeHeader){
 				#ifdef __OWNERSHIP__
-				#ifdef __RETURNSPIN__
-				.returnLock = 0,
-				#endif // __RETURNSPIN__
-				.returnList = nullptr,
+				#ifdef __REMOTESPIN__
+				.remoteLock = 0,
+				#endif // __REMOTESPIN__
+				.remoteList = nullptr,
 				#endif // __OWNERSHIP__
 
 				.freeList = nullptr,
@@ -748,8 +748,8 @@ static void heapManagerDtor() {
 	// the thread. This final allocation must be handled in doFree for this thread and its terminated heap. However,
 	// this heap has just been put on the heap freelist, and hence there is a race returning the thread-local storage
 	// and a new thread using this heap. The current thread detects it is executing its last free in doFree via
-	// heapManager being null. The trick is for this thread to place the last free onto the current heap's return-list as
-	// the free-storage header points are this heap. Now, even if other threads are pushing to the return list, it is safe
+	// heapManager being null. The trick is for this thread to place the last free onto the current heap's remote-list as
+	// the free-storage header points are this heap. Now, even if other threads are pushing to the remote list, it is safe
 	// because of the locking.
 
 	heapManager = nullptr;								// => heap not in use
@@ -835,7 +835,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
 	"            copies %'llu; smaller %'llu; alignment %'llu; 0 fill %'llu\n" \
 	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  return    pushes %'llu; pulls %'llu; storage %'llu / %'llu bytes\n" \
+	"  remote    pushes %'llu; pulls %'llu; storage %'llu / %'llu bytes\n" \
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
 	"  mmap      calls %'llu; storage %'llu / %'llu bytes\n" \
 	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
@@ -857,7 +857,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
 			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
 			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.return_pushes, stats.return_pulls, stats.return_storage_request, stats.return_storage_alloc,
+			stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
@@ -883,7 +883,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"       \" copy count=\"%'llu;\" smaller count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"return\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"remote\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
 	"<total type=\"sbrk\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu / %'llu\" / > bytes\n" \
 	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
@@ -905,7 +905,7 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) { // see mallo
 			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
 			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
 			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.return_pushes, stats.return_pulls, stats.return_storage_request, stats.return_storage_alloc,
+			stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
 			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
 			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
 			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
@@ -1234,23 +1234,23 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				heapManager->heapBuffer = (char *)heapManager->heapBuffer + tsize;
 			#ifdef __OWNERSHIP__
 				// Race with adding thread, get next time if lose race.
-			} else if ( UNLIKELY( freeHead->returnList ) ) { // returned space ?
-				// Get storage by removing entire return list and chain onto appropriate free list.
-				#ifdef __RETURNSPIN__
-				spin_acquire( &freeHead->returnLock );
-				block = freeHead->returnList;
-				freeHead->returnList = nullptr;
-				spin_release( &freeHead->returnLock );
+			} else if ( UNLIKELY( freeHead->remoteList ) ) { // returned space ?
+				// Get storage by removing entire remote list and chain onto appropriate free list.
+				#ifdef __REMOTESPIN__
+				spin_acquire( &freeHead->remoteLock );
+				block = freeHead->remoteList;
+				freeHead->remoteList = nullptr;
+				spin_release( &freeHead->remoteLock );
 				#else
-				block = __atomic_exchange_n( &freeHead->returnList, nullptr, __ATOMIC_SEQ_CST );
-				#endif // __RETURNSPIN__
+				block = __atomic_exchange_n( &freeHead->remoteList, nullptr, __ATOMIC_SEQ_CST );
+				#endif // __REMOTESPIN__
 
 				assert( block );
 				#ifdef __STATISTICS__
-				heap->stats.return_pulls += 1;
+				heap->stats.remote_pulls += 1;
 				#endif // __STATISTICS__
 
-				freeHead->freeList = block->header.kind.real.next; // merge returnList into freeHead
+				freeHead->freeList = block->header.kind.real.next; // merge remoteList into freeHead
 			#endif // __OWNERSHIP__
 			} else {
 				// Get storage from a *new* free block using bump alocation.
@@ -1358,22 +1358,22 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			header->kind.real.next = freeHead->freeList; // push on stack
 			freeHead->freeList = (Heap::Storage *)header;
 		} else {										// return to thread owner
-			#ifdef __RETURNSPIN__
-			spin_acquire( &freeHead->returnLock );
-			header->kind.real.next = freeHead->returnList; // push to bucket return list
-			freeHead->returnList = (Heap::Storage *)header;
-			spin_release( &freeHead->returnLock );
+			#ifdef __REMOTESPIN__
+			spin_acquire( &freeHead->remoteLock );
+			header->kind.real.next = freeHead->remoteList; // push entire remote list to bucket
+			freeHead->remoteList = (Heap::Storage *)header;
+			spin_release( &freeHead->remoteLock );
 			#else										// lock free
-			header->kind.real.next = freeHead->returnList; // link new node to top node
-			// CAS resets header->kind.real.next = freeHead->returnList on failure
-			while ( ! __atomic_compare_exchange_n( &freeHead->returnList, &header->kind.real.next, (Heap::Storage *)header,
+			header->kind.real.next = freeHead->remoteList; // link new node to top node
+			// CAS resets header->kind.real.next = freeHead->remoteList on failure
+			while ( ! __atomic_compare_exchange_n( &freeHead->remoteList, &header->kind.real.next, (Heap::Storage *)header,
 												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
-			#endif // __RETURNSPIN__
+			#endif // __REMOTESPIN__
 
 			if ( UNLIKELY( heap == nullptr ) ) {
 				// Use master heap counters as heap is reused by this point.
 				#ifdef __STATISTICS__
-				AtomicFetchAdd( heapMaster.stats.return_pushes, 1 );
+				AtomicFetchAdd( heapMaster.stats.remote_pushes, 1 );
 				AtomicFetchAdd( heapMaster.stats.free_storage_request, size );
 				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, tsize );
 				// Return push counters are not incremented because this is a self-return push, and there is no
@@ -1388,9 +1388,9 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			} // if
 
 			#ifdef __STATISTICS__
-			heap->stats.return_pushes += 1;
-			heap->stats.return_storage_request += size;
-			heap->stats.return_storage_alloc += tsize;
+			heap->stats.remote_pushes += 1;
+			heap->stats.remote_storage_request += size;
+			heap->stats.remote_storage_alloc += tsize;
 			#endif // __STATISTICS__
 		} // if
 
@@ -1902,6 +1902,16 @@ extern "C" {
 		} // if
 		return ZeroFillBit( header );					// zero filled ?
 	} // malloc_zero_fill
+
+
+	bool malloc_remote( void * addr ) {
+	  if ( UNLIKELY( addr == nullptr ) ) return false;	// null allocation is not zero fill
+		Heap::Storage::Header * header = HeaderAddr( addr );
+		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
+			header = RealHeader( header );				// backup from fake to real header
+		} // if
+		return heapManager == (ClearStickyBits( header->kind.real.home ))->homeManager;
+	} // malloc_remote
 
 
 	// Prints (on default standard error) statistics about memory allocated by malloc and related functions.
