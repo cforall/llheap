@@ -1,117 +1,162 @@
-#include <stdlib.h>										// abort
-#include <errno.h>										// errno
-#include <pthread.h>
-#include <assert.h>
-#include <malloc.h>
-#include <locale.h>										// setlocale
+#define HYPERAFF
+#define LINEARAFF
 #include "affinity.h"
 
-template<typename T> class BoundedBuffer {				// barging
-	pthread_mutex_t mutex;
-	pthread_cond_t prod, cons;
-	const unsigned int size;
-	unsigned int front = 0, back = 0, count = 0;
-	T * buffer;
-  public:
-	BoundedBuffer( const unsigned int size = 10 ) : size( size ) {
-		buffer = new T[size];
-		pthread_mutex_init( &mutex, nullptr );
-		pthread_cond_init( &prod, nullptr );
-		pthread_cond_init( &cons, nullptr );
-	} // BoundedBuffer::BoundedBuffer
+typedef uintptr_t TYPE;									// addressable word-size
+typedef volatile TYPE VTYPE;							// volatile addressable word-size
 
-	~BoundedBuffer() {
-		assert( count == 0 );
-		pthread_mutex_lock( &mutex );					// must be mutex
-		delete [] buffer;
-		pthread_cond_destroy( &cons );
-		pthread_cond_destroy( &prod );
-		pthread_mutex_destroy( &mutex );
-	} // BoundedBuffer::~BoundedBuffer
+#define CACHE_ALIGN 128									// Intel recommendation
+#define CALIGN __attribute__(( aligned(CACHE_ALIGN) ))
 
-	void insert( T elem ) {
-		pthread_mutex_lock( &mutex );
+#define Fas( change, assn ) __atomic_exchange_n( (&(change)), (assn), __ATOMIC_SEQ_CST )
+static __attribute__(( unused )) inline TYPE cycleUp( TYPE v, TYPE n ) { return ( ((v) >= (n - 1)) ? 0 : (v + 1) ); }
+static __attribute__(( unused )) inline TYPE cycleDown( TYPE v, TYPE n ) { return ( ((v) <= 0) ? (n - 1) : (v - 1) ); }
 
-		while ( count == size ) {						// buffer full ?
-			pthread_cond_wait( &prod, &mutex );			// block until empty buffer slot
+
+template<typename T> T statistics( size_t N, T values[], double & avg, double & std, double & rstd ) {
+	T sum = 0;
+	for ( size_t r = 0; r < N; r += 1 ) {
+		sum += values[r];
+	} // for
+	avg = sum / N;										// average
+	double sum2 = 0.0;									// sum squared
+	for ( size_t r = 0; r < N; r += 1 ) {				// sum squared differences from average
+		double diff = values[r] - avg;
+		sum2 += diff * diff;
+	} // for
+	std = sqrt( sum2 / N );
+	rstd = avg == 0.0 ? 0.0 : std / avg * 100;
+	return sum;
+} // statisitics
+
+template<typename T> __attribute__(( unused )) void shuffle( T set[], const size_t size, const size_t times = 100 ) {
+	size_t p;
+	T temp;
+
+	for ( size_t i = 0; i < times; i += 1 ) {			// shuffle array S times
+		p = rand() % size;
+		temp = set[p];  set[p] = set[0];  set[p] = temp;
+	} // for
+} // shuffle
+
+
+enum { MaxThread = 256, MaxBatch = 500 };
+struct Aligned { CALIGN void * * col; };				// thread global
+void * batches[MaxThread][MaxBatch];					// set to nullptr
+volatile Aligned allocations[MaxThread];				// set to nullptr
+TYPE times[MaxThread];
+TYPE Threads, Batch;									// set in program main
+volatile bool stop = false;
+
+void * worker( void * arg ) {
+	TYPE id = (TYPE)arg;
+	TYPE cnt = 0, a = 0;
+	Aligned batch = { batches[id] };
+
+	for ( ; ! stop; ) {
+		for ( intptr_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations
+			batch.col[i] = malloc( i & 1 ? 42 : 192 );
+		} // for
+
+		Aligned obatch = batch;
+		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // swaps
+			if ( stop ) goto fini;
+			a = cycleUp( a, Threads );					// try another batch
 		} // while
 
-		buffer[back] = elem;							// insert element into buffer
-		count += 1;
-		back = ( back + 1 ) % size;
-
-		pthread_cond_signal( &cons );
-		pthread_mutex_unlock( &mutex );
-	} // BoundedBuffer::insert
-
-	T remove() {
-		pthread_mutex_lock( &mutex );
-
-		while ( count == 0 ) {							// buffer empty ?
-			pthread_cond_wait( &cons, &mutex );			// block until full buffer slot
-		} // while
-
-		T temp = buffer[front];							// remove element from buffer
-		count -= 1;
-		front = ( front + 1 ) % size;
-
-		pthread_cond_signal( &prod );
-		pthread_mutex_unlock( &mutex );
-		return temp;
-	} // BoundedBuffer::remove
-};
-
-enum { BufSize = 10'000, ElemSize = 64 };
-BoundedBuffer<char *> buffer( BufSize );
-
-enum { N = 50'000'000 };
-
-void * Prod( void * ) {
-	for ( unsigned int i = 0; i < N; i += 1 ) {
-		char * data = (char *)malloc( ElemSize );
-		data[0] = 'a'; data[ElemSize - 1] = 'b';
-		buffer.insert( data );
+		for ( TYPE i = 0; i < Batch; i += 1 ) {			// deallocations
+			free( batch.col[i] );
+		} // for
+		cnt += Batch;
+		a = cycleUp( a, Threads );
 	} // for
+  fini: ;
+	times[id] = cnt;									// return throughput
 	return nullptr;
-};
+}; // worker
 
-void * Cons( void * ) {
-	for ( unsigned int i = 0; i < N; i += 1 ) {
-		char * data = buffer.remove();
-		assert( data[0] == 'a' && data[ElemSize - 1] == 'b' );
-		free( data );
+
+extern "C" size_t malloc_unfreed() { return Threads * 312/* pthreads */ + 16350/*locale*/; } // llheap only
+
+int main( int argc, char * argv[] ) {
+	const char * lang = getenv( "LANG" );				// may cause memory leak
+	try {
+		locale loc( lang );
+		cout.imbue( loc );								// print numbers with separators (',')
+	} catch( runtime_error & ) {
+		cerr << "Invalid locale language name \"" << lang << "\"" << endl;
+		exit( EXIT_FAILURE );
+	} // try
+
+	enum {
+		Dduration = 30,									// default duration (seconds)
+		Dthreads = 8,									// default threads
+		Dbatch = 100,									// default batch size
+	};
+	TYPE Duration = Dduration;
+	Threads = Dthreads;
+	Batch = Dbatch;
+
+	switch ( argc ) {
+	  case 4:
+		if ( strcmp( argv[3], "d" ) != 0 ) {			// default ?
+			Batch = atoi( argv[3] );					// experiment duration
+			if ( (intptr_t)Batch < 1 || Batch > MaxBatch ) goto USAGE;
+		} // if
+		[[fallthrough]];
+	  case 3:
+		if ( strcmp( argv[2], "d" ) != 0 ) {			// default ?
+			Threads = atoi( argv[2] );					// experiment duration
+			if ( (intptr_t)Threads < 1 || Threads > MaxThread ) goto USAGE;
+		} // if
+		[[fallthrough]];
+	  case 2:
+		if ( strcmp( argv[1], "d" ) != 0 ) {			// default ?
+			Duration = atoi( argv[1] );					// experiment duration
+			if ( (intptr_t)Duration < 1 ) goto USAGE;
+		} // if
+		[[fallthrough]];
+	  case 1:											// defaults
+		break;
+	  USAGE:
+	  default:
+		cout << "Usage: " << argv[0] << " [ duration (> 0, seconds) | 'd' (default) " << Dduration
+			 << " [ threads (> 0 && <= " << MaxThread << ") | 'd' (default) " << Dthreads
+			 << " [ batches (> 0 && <= " << MaxBatch << ") | 'd' (default) " << Dbatch << "] ] ]"
+			 << endl;
+		exit( EXIT_FAILURE );
+	} // switch
+
+	cout << fixed << Duration << ' ' << Threads << ' ' << Batch << ' ' << flush;
+
+	pthread_t workers[Threads];
+	for ( TYPE i = 0; i < Threads; i += 1 ) {
+		if ( pthread_create( &workers[i], NULL, worker, (void *)i ) < 0 ) abort();
+		affinity( workers[i], i );
 	} // for
-	return nullptr;
-};
 
-extern "C" size_t malloc_unfreed() { return 4 * 312 /* pthreads */; }
+	sleep( Duration );
+	stop = true;
 
-int main() {
-	pthread_t prod1, prod2, cons1, cons2;
+	for ( unsigned int i = 0; i < Threads; i += 1 ) {
+		if ( pthread_join( workers[i], NULL ) < 0 ) abort();
+	} // for
 
-	if ( pthread_create( &cons1, NULL, Cons, NULL ) < 0 ) abort();
-	affinity( cons1, 0 );
+	for ( unsigned int i = 0; i < Threads; i += 1 ) { // free any outstanding allocations
+		if ( allocations[i].col != nullptr ) {
+			for ( unsigned int j = 0; j < Batch; j += 1 ) { // free any outstanding allocations
+				free( allocations[i].col[j] );
+			} // for
+		} // if
+	} // for
 
-	if ( pthread_create( &cons2, NULL, Cons, NULL ) < 0 ) abort();
-	affinity( cons2, 1 );
-
-	if ( pthread_create( &prod1, NULL, Prod, NULL ) < 0 ) abort();
-	affinity( prod1, 2 );
-
-	if ( pthread_create( &prod2, NULL, Prod, NULL ) < 0 ) abort();
-	affinity( prod2, 3 );
-
-	if ( pthread_join( prod2, NULL ) < 0 ) abort();
-	if ( pthread_join( prod1, NULL ) < 0 ) abort();
-	if ( pthread_join( cons1, NULL ) < 0 ) abort();
-	if ( pthread_join( cons2, NULL ) < 0 ) abort();
-	// malloc_stats();
-}
-
-// repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
+	double avg, std, rstd;
+	decltype( +times[0] ) total = statistics( Threads, times, avg, std, rstd );
+	cout << fixed << total << setprecision(0) << ' ' << avg << ' ' << std << ' ' << setprecision(1) << rstd << '%' << endl;
+} // main
 
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 ownership.cc libllheap-stats-debug.o -lpthread -D`hostname`" //
+// compile-command: "g++-10 -Wall -Wextra -g -O3 ownership2.cc libllheap-stats-debug.o -lpthread -D`hostname`" //
 // End: //
