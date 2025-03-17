@@ -7,7 +7,7 @@ echo -n "======================\n${hostname}\n======================\n"
 allocsdir="${HOME}/software/allocators"
 allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
 
-cflag="-g -O3 -Wall -Wextra -Wall -Wextra -Werror -D${hostname}" #
+cflag="-g -O3 -Wall -Wextra  -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
     atomicinst=-march=armv8.2-a+lse
@@ -43,16 +43,38 @@ else
     exit -1
 fi
 
-# strace="strace -cfq"
-#time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
-program="testgen" # ownership
+#strace="strace -cfq"
+time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
+#program="testgen"
+program="ownership"
+#program="larson"
+
+larson() {
+    #args="5 8 1000 5000 100 4141" # https://github.com/daanx/mimalloc-bench/blob/master/bench.sh
+    args="30 16 4096 8096 100 4141"
+    echo -n "\nlarson arguments ${args}\n"
+    for CPU in 4 8 16 32 ; do
+	echo -n "larson procesors ${CPU}\n"
+	eval ${time} ${strace} ${taskset} ./${exec} ${args} ${CPU}
+    done
+}
+
+ownership() {
+    for CPU in 2 4 8 16 32 ; do
+	eval ${time} ${strace} ${taskset} ./${exec} 30 ${CPU} 100
+    done
+}
 
 echo -n "\n**********************\nglibc\n**********************\n\n"
 echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
 ${CC} ${cflag} ${program}.cc -lpthread
 echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
-eval ${time} ${strace} ${taskset} ./${exec}
+if [ "${program}" != "testgen" ] ; then
+    ${program}
+else
+    eval ${time} ${strace} ${taskset} ./${exec}
+fi
 
 for allocator in ${allocators} ; do
     echo -n "\n**********************\n${allocator}\n**********************\n\n"
@@ -68,7 +90,11 @@ for allocator in ${allocators} ; do
     export LD_PRELOAD=${allocsdir}/${allocator}
 
     # kill pid for a.out to terminate
-    eval ${time} ${strace} ${taskset} ./${exec}
+    if [ "${program}" != "testgen" ] ; then
+	eval ${program}
+    else
+	eval ${time} ${strace} ${taskset} ./${exec} ${args}
+    fi
 done
 
 rm -f "${exec}"
