@@ -1,4 +1,17 @@
-#define HYPERAFF
+#include <iostream>
+#include <iomanip>
+#include <cmath>
+#include <locale>
+using namespace std;
+
+#include "llheap.h"
+#include <stdint.h>										// uintptr_t, UINTPTR_MAX
+#include <unistd.h>										// sleep
+#include <string.h>										// strcmp
+#include <pthread.h>
+
+// HYPERAFF => use hyperthreads and fill in pairs of processors on a socket => 129,384, 129,385, ...
+//#define HYPERAFF
 #define LINEARAFF
 #include "affinity.h"
 
