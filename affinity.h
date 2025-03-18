@@ -42,6 +42,14 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	#if defined( HYPERAFF )
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS );
 	#endif // HYPERAFF
+#elif defined( jax )
+	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 4, CORES = 24, HYPER = 2 /* wrap on socket */ };
+	#if defined( LINEARAFF )
+	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
+	#endif // LINEARAFF
+	#if defined( HYPERAFF )
+	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS );
+	#endif // HYPERAFF
 #else
 	// HYPERAFF unsupported for these architectures.
 	#define LINEARAFF
