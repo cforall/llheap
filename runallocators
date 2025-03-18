@@ -21,7 +21,7 @@ if [ "${osversion}" = "24.04" ] ; then
 elif [ "${osversion}" = "22.04" ] ; then
     CC=g++-12
 elif [ "${osversion}" = "20.04" ] ; then
-    CC=g++-11
+    CC=g++-10
 else
     echo "unknown operating system"
     exit -1
@@ -38,6 +38,8 @@ elif [ "${hostname}" = "prolog" ] ; then
     taskset="taskset --cpu-list 64"
 elif [ "${hostname}" = "algol" ] ; then
     taskset="taskset --cpu-list 48"
+elif [ "${hostname}" = "jax" ] ; then
+    taskset="taskset --cpu-list 24"
 else
     echo "unknown machine name"
     exit -1
