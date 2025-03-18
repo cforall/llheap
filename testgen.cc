@@ -13,9 +13,8 @@ using namespace std;
 #include <sys/resource.h>								// getrusage
 #include <pthread.h>
 
-
-// Select the form of affinity across the processors.  In general, allocation benchmarks give better performance with
-// LINEARAFF because the L1 cache is not shared. With hyperthreading, the L1 cache is shared on certain architectures.
+#define str( s ) #s
+#define xstr(s) str(s)
 
 // HYPERAFF => use hyperthreads and fill in pairs of processors on a socket => 129,384, 129,385, ...
 //#define HYPERAFF
@@ -23,13 +22,6 @@ using namespace std;
 // LINEARAFF => do not use hyperthreading and fill cores on a socket => 129, 130, 131, 132, ...
 #define LINEARAFF
 #include "affinity.h"
-
-
-#define str( s ) #s
-#define xstr(s) str(s)
-
-// llheap only
-extern "C" size_t malloc_unfreed() { return 5979; }		// printf(1024)/setlocale(4043)/pthread(3*304)
 
 static timespec currTime() {
 	timespec t;											// nanoseconds since UNIX epoch
@@ -499,6 +491,9 @@ static void statistics( size_t N, double values[], double * avg, double * std, d
 	*rstd = *avg == 0.0 ? 0.0 : *std / *avg * 100;
 } // statisitics
 
+
+// llheap only
+extern "C" size_t malloc_unfreed() { return 5979; }		// printf(1024)/setlocale(4043)/pthread(3*304)
 
 int main() {
 	setlocale( LC_NUMERIC, getenv( "LANG" ) );			// separators in numbers
