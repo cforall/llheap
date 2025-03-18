@@ -10,9 +10,14 @@ using namespace std;
 #include <string.h>										// strcmp
 #include <pthread.h>
 
+#define str( s ) #s
+#define xstr(s) str(s)
+
 // HYPERAFF => use hyperthreads and fill in pairs of processors on a socket => 129,384, 129,385, ...
-//#define HYPERAFF
-#define LINEARAFF
+#define HYPERAFF
+
+// LINEARAFF => do not use hyperthreading and fill cores on a socket => 129, 130, 131, 132, ...
+//#define LINEARAFF
 #include "affinity.h"
 
 typedef uintptr_t TYPE;									// addressable word-size
@@ -165,7 +170,15 @@ int main( int argc, char * argv[] ) {
 
 	double avg, std, rstd;
 	decltype( +times[0] ) total = statistics( Threads, times, avg, std, rstd );
-	cout << fixed << total << setprecision(0) << ' ' << avg << ' ' << std << ' ' << setprecision(1) << rstd << '%' << endl;
+	cout << fixed << total << setprecision(0) << ' ' << avg << ' ' << std << ' ' << setprecision(1) << rstd << "% ";
+
+	#if defined( HYPERAFF )
+	cout << "HYPERAFF affinity" << endl;
+	#elif defined( LINEARAFF )
+	cout << "LINEARAFF affinity" << endl;
+	#else
+		#error no affinity specified
+	#endif
 } // main
 
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
