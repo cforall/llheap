@@ -2,11 +2,9 @@
 
 **Requires >= g++-9**
 
-```
 $ make all
-```
 
-creates 8 libraries that can be linked to a program to replace the default memory allocator.
+Creates 8 libraries that can be linked to a program to replace the default memory allocator.
 
 * **`libllheap.o`** statically-linkable allocator with optimal performance without statistics or debugging.
 * **`libllheap-debug.o`** statically-linkable allocator with debugging.
@@ -17,20 +15,43 @@ creates 8 libraries that can be linked to a program to replace the default memor
 * **`libllheap-stats.so`** dynamically-linkable allocator with statistics.
 * **`libllheap-stats-debug.so`** dynamically-linkable allocator with debugging and statistics.
 
-The Makefile has options for building.
+The Makefile has building options.
 
 * __FASTLOOKUP__ (default) use O(1) table lookup from allocation size to bucket size for small allocations.
 * __OWNERSHIP__	 (default) return freed memory to owner thread.
-* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree queue.
+* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree stack.
 * __NULL_0_ALLOC__ (default) return an allocation addresses for a 0-sized allocation rather than a null pointer.
 
 # Memory Allocator Design
 
-llheap is designed as a fast concurrent allocator with very low latency at the cost of a slightly larger memory footprints. The implementation fulfills GNUC library requirements while adding significant extensions and safety.
+llheap is a fast concurrent (heap-per-thread) memory allocator for managed programing languages with low latency at the cost of a slightly larger memory footprints.
+The implementation provides the following GNUC library routines.
+
+        void * malloc( size_t size )  
+        void * calloc( size_t dimension, size_t size )  
+        void * realloc( void * oaddr, size_t size )  
+        void * reallocarray( void * oaddr, size_t dimension, size_t size )  
+        void free( void * addr )  
+        void * memalign( size_t alignment, size_t size )  
+        void * aligned_alloc( size_t alignment, size_t size )  
+        int posix_memalign( void ** memptr, size_t alignment, size_t size )  
+        void * valloc( size_t size )  
+        void * pvalloc( size_t size )  
+        int mallopt( int option, int value )
+        size_t malloc_usable_size( void * addr )
+        void malloc_stats( void )
+        int malloc_info( int options, FILE * fp )
+
+Unsupported routines.
+
+        struct mallinfo mallinfo( void )
+        int malloc_trim( size_t )`
+        void * malloc_get_state( void )`
+        int malloc_set_state( void * )`
 
 ## Objective
 
-The objectives of the llheap design are:
+The llheap objectives are:
 
 * thread-safe,
 * fast concurrent allocation/free with or without statistics/debugging,
@@ -42,19 +63,20 @@ The objectives of the llheap design are:
 
 * `malloc` remembers the original allocation size separate from the actual allocation size.
 * `calloc` sets the sticky zero-fill property.
-* `memalign` sets the alignment sticky property, remembering the specified alignment size.
+* `memalign`, `aligned_alloc`, `posix_memalign`, `valloc` and `pvalloc` set the alignment sticky property, remembering the specified alignment size.
 * `realloc` preserved all sticky properties when moving and increasing space.
-* `malloc_stats` prints (default standard error) detailed statistics of all allocation/free operations. llheap must be compiled with statistic version. Existence of shell variable LLHEAP_MALLOC_STATS implicitly calls malloc_stats at program termination.
-* `malloc_stats_clear` clears all thread statistic couters. llheap must be compiled with statistic version.
-
-**Return:** side-effect of writing out statistics.
+* `malloc_stats` prints (default standard error) detailed statistics of allocation/free operations when linked with a statistic version.
+  Existence of shell variable MALLOC_STATS implicitly calls malloc_stats at program termination.
 
 ## Added Features
 
-The following new allocation operations are available with llheap:
+The following allocation features are available with llheap.
+
+### New allocation operations
 
 ### `void * aalloc( size_t dimension, size_t elemSize )`
-extends calloc for allocating a dynamic array of objects but *without* zero-filling the memory. aalloc is significantly faster than calloc.
+extends `calloc` for allocating a dynamic array of objects but *without* zero-filling the memory.
+Significantly faster than `calloc`.
 
 **Parameters:**
 
@@ -64,7 +86,9 @@ extends calloc for allocating a dynamic array of objects but *without* zero-fill
 **Return:** address of the dynamic array or NULL if allocation fails.
 
 ### `void * resize( void * oaddr, size_t size )`
-extends realloc for resizing an existing allocation *without* copying previous data into the new allocation or preserving sticky properties. resize is significantly faster than realloc.
+extends `realloc` for resizing an existing allocation *without* copying previous data into the new allocation.
+No sticky properties are preserved.
+Significantly faster than `realloc`.
 
 **Parameters:**
 
@@ -73,44 +97,120 @@ extends realloc for resizing an existing allocation *without* copying previous d
 
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
 
-### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
-extends aalloc and memalign for allocating an aligned dynamic array of objects. Sets sticky alignment property.
+### `void * resizearray( void * oaddr, size_t dimension, size_t elemSize )`
+extends `resize` for an array of `dimension` elements of size `elemSize`.
+No sticky properties are preserved.
+Significantly faster than `reallocarray`.
 
 **Parameters:**
 
-* `alignment`: alignment requirement
+* `oaddr`: address to be resized
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** address of the aligned dynamic array or NULL if either dimension or elemSize are zero.
+**Return:** address of the old or new storage with the specified new size or NULL if size is zero.
+
+### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
+extends `aalloc` with an alignment.
+Sets sticky alignment property.
+
+**Parameters:**
+
+* `alignment`: alignment
+* `dimension`: number of array objects
+* `elemSize`: size of array object
+
+**Return:** address of the aligned dynamic array or NULL if either `dimension` or `elemSize` are zero.
 
 ### `void * cmemalign( size_t alignment, size_t dimension, size_t elemSize )`
-extends amemalign with zero fill and has the same parameters as amemalign.
+extends `amemalign` with zero fill.
 Sets sticky zero-fill and alignment property.
 
-**Return:** address of the aligned, zero-filled dynamic-array or NULL if either dimension or elemSize are zero.
+**Parameters:**
+
+* `alignment`: alignment
+* `dimension`: number of array objects
+* `elemSize`: size of array object
+
+**Return:** address of the aligned, zero-filled dynamic array or NULL if either dimension or `elemSize` are zero.
 
 ### `void * aligned_resize( void * oaddr, size_t nalignment, size_t size )`
-extends resize with an alignment requirement.
-
-### `void * aligned_realloc( void * oaddr, size_t nalignment, size_t size )`
-extends realloc by realigning the old object to a new alignment requirement. Sets the sticky alignment property.
+extends `resize` with an alignment.
+No sticky properties are preserved.
 
 **Parameters:**
 
 * `oaddr`: address to be resized
-* `nalignment`: new alignment requirement
+* `nalignment`: new alignment
 * `size`: new allocation size (smaller or larger than previous)
 
-### `void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
-extends reallocarray by realigning the old object to a new alignment requirement. Sets the sticky alignment property.
+**Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
+
+### `void * aligned_resizearray( void * oaddr, size_t nalignment, size_t `dimension`, size_t elemSize )`
+extends `resizearray` with an alignment.
+No sticky properties are preserved.
 
 * `oaddr`: address to be resized
-* `nalignment`: new alignment requirement
+* `nalignment`: new alignment
 * `dimension`: number of array objects
 * `elemSize`: new size of array object (smaller or larger than previous)
 
-**Return:** address of the old or new storage with the specified new size or NULL if the resize fails. All sticky properties are preserved.
+**Return:** address of the aligned old or new storage with the specified new size or NULL if the resize fails.
+
+### `void * aligned_realloc( void * oaddr, size_t nalignment, size_t size )`
+extends `realloc` with an alignment.
+All sticky properties are preserved.
+
+**Parameters:**
+
+* `oaddr`: address to be resized
+* `nalignment`: new alignment
+* `size`: new allocation size (smaller or larger than previous)
+
+**Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
+
+### `void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
+extends `resizearray` with an alignment.
+All sticky properties are preserved.
+
+* `oaddr`: address to be resized
+* `nalignment`: new alignment
+* `dimension`: number of array objects
+* `elemSize`: new size of array object (smaller or larger than previous)
+
+**Return:** address of the aligned old or new storage with the specified new size or NULL if the resize fails.
+
+### New control operations
+
+These routines are called *once* during llheap startup to set specific limits.
+To set a value, defining the specific routine in an application and return the desired value.
+
+### `size_t malloc_expansion( void )`
+set the amount (bytes) to extend the heap when there is insufficient free storage to service an allocation request.
+
+**Return:** heap extension size used throughout a program.
+
+### `size_t malloc_mmap_start( void )`
+set the crossover allocation size from the contiguous sbrk area to separate mmapped areas.
+Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
+
+**Return:** crossover point used throughout a program.
+
+### `size_t malloc_unfreed( void )`
+amount subtracted to adjust for global unfreed program storage, such as `printf` (debug only).
+
+**Return:** new subtraction amount and called by `malloc_stats`.
+
+### New preserved properties
+
+### `size_t malloc_size( void * addr )`
+returns the requested size of a dynamic object, which is updated when an object is resized. See also `malloc_usable_size`.
+
+**Parameters:**
+
+* `addr`: address of allocated object.
+
+**Return:** request size or zero if `addr` is NULL.
 
 ### `size_t malloc_alignment( void * addr )`
 returns the alignment of the dynamic object.
@@ -122,7 +222,7 @@ returns the alignment of the dynamic object.
 **Return:** alignment of the given object, where objects not allocated with alignment return the minimal allocation alignment.
 
 ### `bool malloc_zero_fill( void * addr )`
-returns if the dynamic object is zero filled.
+indicates if the dynamic object is zero filled.
 
 **Parameters:**
 
@@ -130,34 +230,25 @@ returns if the dynamic object is zero filled.
 
 **Return:** true if the zero-fill sticky property is set and false otherwise.
 
-### `size_t malloc_size( void * addr )`
-returns the requested size of a dynamic object, which is updated when an object is resized. See also malloc_usable_size.
+### `bool malloc_remote( void * addr )`
+indicates if the dynamic object is from a remote heap (OWNERSHIP only).
 
 **Parameters:**
 
-* `addr`: address of allocated object.
+* `addr`: address of an allocated object.
 
-**Return:** request size or zero if `addr` is NULL.
+**Return:** true if the object belongs to another heap and false otherwise.
+
+### New Statistics
 
 ### `int malloc_stats_fd( int fd )`
 set the file descriptor for malloc_stats() writes (default stdout).
 
 **Return:** previous file descriptor
 
-### `size_t malloc_expansion()`
-set the amount (bytes) to extend the heap when there is insufficient free storage to service an allocation request.
-
-**Return:** heap extension size used throughout a program, i.e., called once at heap initialization.
-
-### `size_t malloc_mmap_start()`
-set the crossover between allocations occuring in the sbrk area or separately mmapped.
-
-**Return:** crossover point used throughout a program, i.e., called once at heap initialization.
-
-### `size_t malloc_unfreed()`
-amount subtracted to adjust for unfreed program storage (debug only).
-
-**Return:** new subtraction amount and called by `malloc_stats`.
-
 ### `void malloc_stats_clear()`
 clear the statistics counters for the master heap and all thread heaps.
+
+### `void heap_stats()`
+extends `malloc_stats` to only print statistics for the heap associated with the executing thread.
+
