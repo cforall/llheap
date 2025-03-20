@@ -1,5 +1,5 @@
 CXX := g++-11
-CXXFLAGS := -g -O3 -Wall -Wextra # -D__NONNULL_0_ALLOC__ -D__DEBUG_PRT__
+CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__ -D__NONNULL_0_ALLOC__
 LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-asynchronous-unwind-tables \
 	-fno-stack-check -fno-unwind-tables -fno-rtti #
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
