@@ -6,20 +6,22 @@ extern "C" {
 	// New allocation operations
 	void * aalloc( size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // calloc - zero-fill
 	void * resize( void * oaddr, size_t size ) __attribute__ ((malloc)); // realloc - data copy
+	void * resizearray( void * oaddr, size_t dimension, size_t elemSize ); // reallocarray - data copy
 	void * amemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // memalign + array
 	void * cmemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // memalign + zero-fil
 	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) __attribute__ ((malloc)); // resize + alignment
+	void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // resizearray + alignment
 	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) __attribute__ ((malloc)); // realloc + alignment
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // reallocarray + alignment
 
 	// New control operations
-	size_t malloc_expansion();							// heap expansion size (bytes)
-	size_t malloc_mmap_start();							// crossover allocation size from sbrk to mmap
-	size_t malloc_unfreed();							// amount subtracted to adjust for unfreed program storage (debug only)
+	size_t malloc_expansion( void );					// heap expansion size (bytes)
+	size_t malloc_mmap_start( void );					// crossover allocation size from sbrk to mmap
+	size_t malloc_unfreed( void );						// amount subtracted to adjust for unfreed program storage (debug only)
 
 	// Preserved properties
 	size_t malloc_size( void * addr );					// object's request size, malloc_size <= malloc_usable_size
-	size_t malloc_alignment( void * addr );				// object alignment 
+	size_t malloc_alignment( void * addr );				// object alignment
 	bool malloc_zero_fill( void * addr );				// true if object is zero filled
 	bool malloc_remote( void * addr );					// true if object is remote
 

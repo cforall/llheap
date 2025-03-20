@@ -1563,6 +1563,12 @@ extern "C" {
 	} // resize
 
 
+	// Same as resize() except the new allocation size is large enough for an array of nelem elements of size elemSize.
+	void * resizearray( void * oaddr, size_t dimension, size_t elemSize ) {
+		return resize( oaddr, dimension * elemSize );
+	} // resizearray
+
+
 	// Same as resize() but the contents are unchanged in the range from the start of the region up to the minimum of
 	// the old and new sizes.
 	void * realloc( void * oaddr, size_t size ) {
@@ -1639,7 +1645,7 @@ extern "C" {
 	} // realloc
 
 
-	// Same as realloc() except the new allocation size is large enough for an array of nelem elements of size elsize.
+	// Same as realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
 	void * reallocarray( void * oaddr, size_t dimension, size_t elemSize ) {
 		return realloc( oaddr, dimension * elemSize );
 	} // reallocarray
@@ -1649,18 +1655,18 @@ extern "C" {
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
 			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) );
 		} // if
-	
+
 	  if ( UNLIKELY( size == 0 ) ) {
 			STAT_0_CNT( HeapStatistics::RESIZE );
 			doFree( oaddr );
 			return nullptr;
 		} // if
-	
+
 		// Attempt to reuse existing alignment.
 		Heap::Storage::Header * header = HeaderAddr( oaddr );
 		bool isFakeHeader = AlignmentBit( header );		// old fake header ?
 		size_t oalignment;
-	
+
 		if ( UNLIKELY( isFakeHeader ) ) {
 			checkAlign( nalignment );					// check alignment
 			oalignment = ClearAlignmentBit( header );	// old alignment
@@ -1674,7 +1680,7 @@ extern "C" {
 				size_t bsize;
 				headers( "aligned_resize", oaddr, header, freeHead, bsize, oalignment );
 				size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
-	
+
 				if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
 					HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
 
@@ -1693,29 +1699,34 @@ extern "C" {
 					&& nalignment == __ALIGN__ ) {		// new alignment also on libAlign => no fake header needed
 			return resize( oaddr, size );				// duplicate special case checks
 		} // if
-	
+
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
 		doFree( oaddr );								// free previous storage
 		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
 	} // aligned_resize
-	
-	
+
+
+	void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) {
+		return aligned_resize( oaddr, nalignment, dimension * elemSize );
+	} // aligned_resizearray
+
+
 	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) {
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
 			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) );
 		} // if
-	
+
 	  if ( UNLIKELY( size == 0 ) ) {
 			STAT_0_CNT( HeapStatistics::REALLOC );
 			doFree( oaddr );
 			return nullptr;
 		} // if
-	
+
 		// Attempt to reuse existing alignment.
 		Heap::Storage::Header * header = HeaderAddr( oaddr );
 		bool isFakeHeader = AlignmentBit( header );		// old fake header ?
 		size_t oalignment;
-	
+
 		if ( UNLIKELY( isFakeHeader ) ) {
 			checkAlign( nalignment );					// check alignment
 			oalignment = ClearAlignmentBit( header );	// old alignment
@@ -1730,25 +1741,25 @@ extern "C" {
 					&& nalignment == __ALIGN__ ) {		// new alignment also on libAlign => no fake header needed
 			return realloc( oaddr, size );				// duplicate special case checks
 		} // if
-	
+
 		Heap::FreeHeader * freeHead;
 		size_t bsize;
 		headers( "aligned_realloc", oaddr, header, freeHead, bsize, oalignment );
-	
+
 		// change size and copy old content to new storage
-	
+
 		size_t osize = header->kind.real.size;			// old allocation size
 		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
-	
+
 		void * naddr = memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
-	
+
 		header = HeaderAddr( naddr );					// new header
 		size_t alignment;
 		fakeHeader( header, alignment );				// could have a fake header
-	
+
 		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
 		doFree( oaddr );								// free previous storage
-	
+
 		if ( UNLIKELY( ozfill ) ) {						// previous request zero fill ?
 			MarkZeroFilledBit( header );				// mark new request as zero filled
 			if ( size > osize ) {						// previous request larger ?
@@ -1757,8 +1768,8 @@ extern "C" {
 		} // if
 		return naddr;
 	} // aligned_realloc
-	
-	
+
+
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) {
 		return aligned_realloc( oaddr, nalignment, dimension * elemSize );
 	} // aligned_reallocarray
