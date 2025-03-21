@@ -64,7 +64,7 @@ The llheap objectives are:
 * `malloc` remembers the original allocation size separate from the actual allocation size.
 * `calloc` sets the sticky zero-fill property.
 * `memalign`, `aligned_alloc`, `posix_memalign`, `valloc` and `pvalloc` set the alignment sticky property, remembering the specified alignment size.
-* `realloc` preserved all sticky properties when moving and increasing space.
+* `realloc` and `reallocarray` preserved all sticky properties when moving and increasing space.
 * `malloc_stats` prints (default standard error) detailed statistics of allocation/free operations when linked with a statistic version.
   Existence of shell variable MALLOC_STATS implicitly calls malloc_stats at program termination.
 
@@ -75,7 +75,7 @@ The following allocation features are available with llheap.
 ### New allocation operations
 
 ### `void * aalloc( size_t dimension, size_t elemSize )`
-extends `calloc` for allocating a dynamic array of objects but *without* zero-filling the memory.
+extends `calloc` for dynamic array allocation *without* zero-filling the memory.
 Significantly faster than `calloc`.
 
 **Parameters:**
@@ -86,7 +86,7 @@ Significantly faster than `calloc`.
 **Return:** address of the dynamic array or NULL if allocation fails.
 
 ### `void * resize( void * oaddr, size_t size )`
-extends `realloc` for resizing an existing allocation *without* copying previous data into the new allocation.
+extends `realloc` for resizing an allocation *without* copying previous data into the new allocation.
 No sticky properties are preserved.
 Significantly faster than `realloc`.
 
@@ -98,7 +98,7 @@ Significantly faster than `realloc`.
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
 
 ### `void * resizearray( void * oaddr, size_t dimension, size_t elemSize )`
-extends `resize` for an array of `dimension` elements of size `elemSize`.
+extends `resize` for an array allocation.
 No sticky properties are preserved.
 Significantly faster than `reallocarray`.
 
@@ -183,7 +183,7 @@ All sticky properties are preserved.
 ### New control operations
 
 These routines are called *once* during llheap startup to set specific limits.
-To set a value, defining the specific routine in an application and return the desired value.
+To set a value, define a specific routine in an application and return the desired value.
 
 ### `size_t malloc_expansion( void )`
 set the amount (bytes) to extend the heap when there is insufficient free storage to service an allocation request.
@@ -191,7 +191,7 @@ set the amount (bytes) to extend the heap when there is insufficient free storag
 **Return:** heap extension size used throughout a program.
 
 ### `size_t malloc_mmap_start( void )`
-set the crossover allocation size from the contiguous sbrk area to separate mmapped areas.
+set the crossover allocation size from the contiguous `sbrk` area to separate mmapped areas.
 Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
 
 **Return:** crossover point used throughout a program.
@@ -201,7 +201,7 @@ amount subtracted to adjust for global unfreed program storage, such as `printf`
 
 **Return:** new subtraction amount and called by `malloc_stats`.
 
-### New preserved properties
+### New preserved-property access
 
 ### `size_t malloc_size( void * addr )`
 returns the requested size of a dynamic object, which is updated when an object is resized. See also `malloc_usable_size`.
@@ -213,7 +213,7 @@ returns the requested size of a dynamic object, which is updated when an object 
 **Return:** request size or zero if `addr` is NULL.
 
 ### `size_t malloc_alignment( void * addr )`
-returns the alignment of the dynamic object.
+returns the alignment of the dynamic object, where the minimal alignment is 16 bytes.
 
 **Parameters:**
 
@@ -239,15 +239,15 @@ indicates if the dynamic object is from a remote heap (OWNERSHIP only).
 
 **Return:** true if the object belongs to another heap and false otherwise.
 
-### New Statistics
+### New statistics control
 
 ### `int malloc_stats_fd( int fd )`
-set the file descriptor for malloc_stats() writes (default stdout).
+set the file descriptor for `malloc_stats` writes (default `stdout`).
 
 **Return:** previous file descriptor
 
 ### `void malloc_stats_clear()`
-clear the statistics counters for the master heap and all thread heaps.
+clear the statistics counters for all thread heaps.
 
 ### `void heap_stats()`
 extends `malloc_stats` to only print statistics for the heap associated with the executing thread.
