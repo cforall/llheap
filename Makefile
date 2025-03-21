@@ -1,5 +1,9 @@
 CXX := g++-11
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__ -D__NONNULL_0_ALLOC__
+ifeq ($(shell uname -p),aarch64)		# ARM processor ?
+        CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
+endif
+
 LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-asynchronous-unwind-tables \
 	-fno-stack-check -fno-unwind-tables -fno-rtti #
 TIME := /usr/bin/time -f "%Uu %Ss %Er %Mkb"
@@ -18,28 +22,28 @@ all : ${OBJECTS}
 ${OBJECTS} : ${MAKEFILE_NAME}			# OPTIONAL : changes to this file => recompile
 
 libllheap.o : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -c -o $@ $< -DNDEBUG
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -c -o $@ $< -DNDEBUG
 
 libllheap-stats.o : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -c -o $@ $< -DNDEBUG -D__STATISTICS__
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -c -o $@ $< -DNDEBUG -D__STATISTICS__
 
 libllheap-debug.o : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -c -o $@ $< -D__DEBUG__
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -c -o $@ $< -D__DEBUG__
 
 libllheap-stats-debug.o : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -c -o $@ $< -D__DEBUG__ -D__STATISTICS__
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -c -o $@ $< -D__DEBUG__ -D__STATISTICS__
 
 libllheap.so : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -fPIC -shared -o $@ $< -DNDEBUG -DTLS
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -fPIC -shared -o $@ $< -DNDEBUG -DTLS
 
 libllheap-stats.so : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -fPIC -shared -o $@ $< -DNDEBUG -D__STATISTICS__ -DTLS
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -fPIC -shared -o $@ $< -DNDEBUG -D__STATISTICS__ -DTLS
 
 libllheap-debug.so : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -DTLS
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -DTLS
 
 libllheap-stats-debug.so : llheap.cc llheap.h
-	${CXX} ${LLHEAPFLAGS} ${CXXFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -D__STATISTICS__ -DTLS
+	${CXX} ${CXXFLAGS} ${LLHEAPFLAGS} -fPIC -shared -o $@ $< -D__DEBUG__ -D__STATISTICS__ -DTLS
 
 clean :
 	rm -f ${OBJECTS} a.out
