@@ -123,10 +123,6 @@ static inline __attribute__((always_inline)) unsigned long int Ceiling( unsigned
 	return -Floor( -value, alignment );
 } // Ceiling
 
-template< typename T > static inline __attribute__((always_inline)) T AtomicFetchAdd( volatile T & counter, int increment ) {
-	return __atomic_fetch_add( &counter, increment, __ATOMIC_SEQ_CST );
-} // AtomicFetchAdd
-
 
 // std::min and std::lower_bound do not always inline, so substitute hand-coded versions.
 
@@ -146,6 +142,14 @@ static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, 
 } // Bsearchl
 
 
+// reference parameters
+#define Fai( change, Inc ) __atomic_fetch_add( (&(change)), (Inc), __ATOMIC_SEQ_CST )
+#define Tas( lock ) __atomic_test_and_set( (&(lock)), __ATOMIC_ACQUIRE )
+#define Clr( lock ) __atomic_clear( (&(lock)), __ATOMIC_RELEASE )
+#define Fas( change, assn ) __atomic_exchange_n( (&(change)), (assn), __ATOMIC_SEQ_CST )
+#define Cas( change, comp, assn ) ({decltype(comp) __temp = (comp); __atomic_compare_exchange_n( (&(change)), (&(__temp)), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ); })
+#define Casv( change, comp, assn ) __atomic_compare_exchange_n( (&(change)), (comp), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST )
+
 // pause to prevent excess processor bus usage
 #if defined( __i386 ) || defined( __x86_64 )
 	#define Pause() __asm__ __volatile__ ( "pause" : : : )
@@ -162,7 +166,7 @@ static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLoc
 	unsigned int spin = SPIN_START;
 
 	for ( unsigned int i = 1;; i += 1 ) {
-	  if ( *lock == 0 && __atomic_test_and_set( lock, __ATOMIC_ACQUIRE ) == 0 ) break; // Fence
+	  if ( *lock == 0 && Tas( *lock ) == 0 ) break;		// Fence
 		for ( volatile unsigned int s = 0; s < spin; s += 1 ) Pause(); // exponential spin
 		spin += spin;									// powers of 2
 		//if ( i % 64 == 0 ) spin += spin;				// slowly increase by powers of 2
@@ -171,7 +175,7 @@ static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLoc
 } // spin_lock
 
 static inline __attribute__((always_inline)) void spin_release( volatile SpinLock_t * lock ) {
-	__atomic_clear( lock, __ATOMIC_RELEASE );			// Fence
+	Clr( *lock );										// Fence
 } // spin_unlock
 
 
@@ -1242,7 +1246,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				freeHead->remoteList = nullptr;
 				spin_release( &freeHead->remoteLock );
 				#else
-				block = __atomic_exchange_n( &freeHead->remoteList, nullptr, __ATOMIC_SEQ_CST );
+				block = Fas( freeHead->remoteList, nullptr );
 				#endif // __REMOTESPIN__
 
 				assert( block );
@@ -1366,22 +1370,21 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			#else										// lock free
 			header->kind.real.next = freeHead->remoteList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->remoteList on failure
-			while ( ! __atomic_compare_exchange_n( &freeHead->remoteList, &header->kind.real.next, (Heap::Storage *)header,
-												   false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ) );
+			while ( ! Casv( freeHead->remoteList, &header->kind.real.next, (Heap::Storage *)header ) ) Pause();
 			#endif // __REMOTESPIN__
 
 			if ( UNLIKELY( heap == nullptr ) ) {
 				// Use master heap counters as heap is reused by this point.
 				#ifdef __STATISTICS__
-				AtomicFetchAdd( heapMaster.stats.remote_pushes, 1 );
-				AtomicFetchAdd( heapMaster.stats.free_storage_request, size );
-				AtomicFetchAdd( heapMaster.stats.free_storage_alloc, tsize );
+				Fai( heapMaster.stats.remote_pushes, 1 );
+				Fai( heapMaster.stats.free_storage_request, size );
+				Fai( heapMaster.stats.free_storage_alloc, tsize );
 				// Return push counters are not incremented because this is a self-return push, and there is no
 				// corresponding pull counter that needs to match.
 				#endif // __STATISTICS__
 
 				#ifdef __DEBUG__
-				AtomicFetchAdd( heapMaster.allocUnfreed, -size );
+				Fai( heapMaster.allocUnfreed, -size );
 				LLDEBUG( debugprt( "\tdoFree2 %zd %zd %jd\n", tsize, size, heapMaster.allocUnfreed ) );
 				#endif // __DEBUG__
 				return;
@@ -1849,7 +1852,7 @@ extern "C" {
 	  if ( UNLIKELY( addr == nullptr ) ) {				// special case
 			#ifdef __STATISTICS__
 			if ( LIKELY( heapManager > (Heap *)1 ) ) heapManager->stats.free_null_0_calls += 1;
-			else AtomicFetchAdd( heapMaster.stats.free_null_0_calls, 1 );
+			else Fai( heapMaster.stats.free_null_0_calls, 1 );
 			#endif // __STATISTICS__
 			return;
 		} // if
