@@ -1,7 +1,8 @@
-CXX := g++-11
+CXX := g++-14
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__ -D__NONNULL_0_ALLOC__
 ifeq ($(shell uname -p),aarch64)		# ARM processor ?
-        CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
+#        CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
+        CXXFLAGS += -march=armv8.2-a+lse	# use ARM LSE instructions for atomics
 endif
 
 LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-asynchronous-unwind-tables \
