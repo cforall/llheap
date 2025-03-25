@@ -47,16 +47,6 @@ template<typename T> T statistics( size_t N, T values[], double & avg, double & 
 	return sum;
 } // statisitics
 
-template<typename T> __attribute__(( unused )) void shuffle( T set[], const size_t size, const size_t times = 100 ) {
-	size_t p;
-	T temp;
-
-	for ( size_t i = 0; i < times; i += 1 ) {			// shuffle array S times
-		p = rand() % size;
-		temp = set[p];  set[p] = set[0];  set[p] = temp;
-	} // for
-} // shuffle
-
 
 enum { MaxThread = 256, MaxBatch = 500 };
 struct Aligned { CALIGN void * * col; };				// thread global
