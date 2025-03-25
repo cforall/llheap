@@ -10,15 +10,7 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 #define HYPERAFF
 #endif // HYPERAFF
 
-#if defined( nasus )
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 };
-	#if defined( LINEARAFF )
-	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
-	#endif // LINEARAFF
-	#if defined( HYPERAFF )
-	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS);
-	#endif // HYPERAFF
-#elif defined( swift )
+#if defined( swift )
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 128, HYPER = 1 };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -27,12 +19,20 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS);
 	#endif // HYPERAFF
 #elif defined( java )
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 32, HYPER = 1 /* wrap on socket */ };
+	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 32, HYPER = 1 /* wrap on socket */ };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
 	#endif // LINEARAFF
 	#if defined( HYPERAFF )
 	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS );
+	#endif // HYPERAFF
+#elif defined( nasus )
+	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 };
+	#if defined( LINEARAFF )
+	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
+	#endif // LINEARAFF
+	#if defined( HYPERAFF )
+	int cpu = OFFSETSOCK * CORES + (tid / 2) + ((tid % 2 == 0) ? 0 : CORES * SOCKETS);
 	#endif // HYPERAFF
 #elif defined( pyke )
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 24, HYPER = 1 /* wrap on socket */ };
@@ -58,13 +58,10 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 16, HYPER = 1 };
 	tid *= 8; // seperate caches
 #elif defined( algol )								// ARM
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 48, HYPER = 1 };
+	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 48, HYPER = 1 };
 #elif defined( prolog )								// ARM
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 }; // pretend 2 sockets
-#elif defined( nasus )								// AMD
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 };
-#elif defined( jax )								// Intel
-	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 4, CORES = 24, HYPER = 2 }; // wrap on socket
+	// enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 }; // pretend 2 sockets
+	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 128, HYPER = 1 };
 #elif defined( cfapi1 )								// raspberrypi
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 4, HYPER = 1 };
 #else // default
