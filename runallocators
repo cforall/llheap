@@ -10,7 +10,7 @@ allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.
 cflag="-g -O3 -Wall -Wextra  -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
-    atomicinst=-march=armv8.2-a+lse
+    atomicinst=-march=armv8.2-a+lse	# use ARM LSE instructions for atomics
     cflag=${cflag}" ${atomicinst}"
 fi
 
@@ -33,11 +33,11 @@ rm -rf core
 if [ "${hostname}" = "swift" ] ; then
     taskset="taskset --cpu-list 128"
 elif [ "${hostname}" = "java" ] ; then
-    taskset="taskset --cpu-list 32"
+    taskset="taskset --cpu-list 0"
 elif [ "${hostname}" = "prolog" ] ; then
-    taskset="taskset --cpu-list 64"
+    taskset="taskset --cpu-list 0"
 elif [ "${hostname}" = "algol" ] ; then
-    taskset="taskset --cpu-list 48"
+    taskset="taskset --cpu-list 0"
 elif [ "${hostname}" = "jax" ] ; then
     taskset="taskset --cpu-list 24"
 else
@@ -62,7 +62,7 @@ larson() {
 }
 
 ownership() {
-    for CPU in 2 4 8 16 32 ; do
+    for CPU in 2 4 8 16 32 64 128 ; do
 	eval ${time} ${strace} ${taskset} ./${exec} 30 ${CPU} 100
     done
 }
