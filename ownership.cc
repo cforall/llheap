@@ -20,15 +20,14 @@ using namespace std;
 //#define LINEARAFF
 #include "affinity.h"
 
-typedef uintptr_t TYPE;									// addressable word-size
-typedef volatile TYPE VTYPE;							// volatile addressable word-size
+typedef size_t TYPE;									// unsigned word-size
 
 #define CACHE_ALIGN 128									// Intel recommendation
 #define CALIGN __attribute__(( aligned(CACHE_ALIGN) ))
 
 #define Fas( change, assn ) __atomic_exchange_n( (&(change)), (assn), __ATOMIC_SEQ_CST )
-static __attribute__(( unused )) inline TYPE cycleUp( TYPE v, TYPE n ) { return ( ((v) >= (n - 1)) ? 0 : (v + 1) ); }
-static __attribute__(( unused )) inline TYPE cycleDown( TYPE v, TYPE n ) { return ( ((v) <= 0) ? (n - 1) : (v - 1) ); }
+static __attribute__(( unused )) inline size_t cycleUp( size_t v, size_t n ) { return ( ((v) >= (n - 1)) ? 0 : (v + 1) ); }
+static __attribute__(( unused )) inline size_t cycleDown( size_t v, size_t n ) { return ( ((v) <= 0) ? (n - 1) : (v - 1) ); }
 
 
 template<typename T> T statistics( size_t N, T values[], double & avg, double & std, double & rstd ) {
@@ -48,31 +47,31 @@ template<typename T> T statistics( size_t N, T values[], double & avg, double & 
 } // statisitics
 
 
-enum { MaxThread = 256, MaxBatch = 500 };
-struct Aligned { CALIGN void * * col; };				// thread global
+enum { MaxThread = 256, MaxBatch = 500 };				// thread global
 void * batches[MaxThread][MaxBatch];					// set to nullptr
+struct Aligned { CALIGN void * * col; };
 volatile Aligned allocations[MaxThread];				// set to nullptr
-TYPE times[MaxThread];
-TYPE Threads, Batch;									// set in program main
+size_t times[MaxThread];								// set to zero
+size_t Threads, Batch;									// set in program main
 volatile bool stop = false;
 
 void * worker( void * arg ) {
-	TYPE id = (TYPE)arg;
-	TYPE cnt = 0, a = 0;
+	size_t id = (size_t)arg;
+	size_t cnt = 0, a = 0;
 	Aligned batch = { batches[id] };
 
 	for ( ; ! stop; ) {
-		for ( intptr_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations
+		for ( ssize_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations
 			batch.col[i] = malloc( i & 1 ? 42 : 192 );
 		} // for
 
 		Aligned obatch = batch;
-		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // swaps
+		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // exchange
 			if ( stop ) goto fini;
 			a = cycleUp( a, Threads );					// try another batch
 		} // while
 
-		for ( TYPE i = 0; i < Batch; i += 1 ) {			// deallocations
+		for ( size_t i = 0; i < Batch; i += 1 ) {		// deallocations
 			free( batch.col[i] );
 		} // for
 		cnt += Batch;
@@ -101,7 +100,7 @@ int main( int argc, char * argv[] ) {
 		Dthreads = 8,									// default threads
 		Dbatch = 100,									// default batch size
 	};
-	TYPE Duration = Dduration;
+	size_t Duration = Dduration;
 	Threads = Dthreads;
 	Batch = Dbatch;
 
@@ -109,19 +108,19 @@ int main( int argc, char * argv[] ) {
 	  case 4:
 		if ( strcmp( argv[3], "d" ) != 0 ) {			// default ?
 			Batch = atoi( argv[3] );					// experiment duration
-			if ( (intptr_t)Batch < 1 || Batch > MaxBatch ) goto USAGE;
+			if ( (ssize_t)Batch < 1 || Batch > MaxBatch ) goto USAGE;
 		} // if
 		[[fallthrough]];
 	  case 3:
 		if ( strcmp( argv[2], "d" ) != 0 ) {			// default ?
 			Threads = atoi( argv[2] );					// experiment duration
-			if ( (intptr_t)Threads < 1 || Threads > MaxThread ) goto USAGE;
+			if ( (ssize_t)Threads < 1 || Threads > MaxThread ) goto USAGE;
 		} // if
 		[[fallthrough]];
 	  case 2:
 		if ( strcmp( argv[1], "d" ) != 0 ) {			// default ?
 			Duration = atoi( argv[1] );					// experiment duration
-			if ( (intptr_t)Duration < 1 ) goto USAGE;
+			if ( (ssize_t)Duration < 1 ) goto USAGE;
 		} // if
 		[[fallthrough]];
 	  case 1:											// defaults
@@ -138,7 +137,7 @@ int main( int argc, char * argv[] ) {
 	cout << fixed << Duration << ' ' << Threads << ' ' << Batch << ' ' << flush;
 
 	pthread_t workers[Threads];
-	for ( TYPE i = 0; i < Threads; i += 1 ) {
+	for ( size_t i = 0; i < Threads; i += 1 ) {
 		if ( pthread_create( &workers[i], NULL, worker, (void *)i ) < 0 ) abort();
 		affinity( workers[i], i );
 	} // for
@@ -174,5 +173,5 @@ int main( int argc, char * argv[] ) {
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
 
 // Local Variables: //
-// compile-command: "g++-10 -Wall -Wextra -g -O3 ownership2.cc libllheap-stats-debug.o -lpthread -D`hostname`" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 ownership.cc libllheap-stats-debug.o -lpthread -D`hostname`" //
 // End: //
