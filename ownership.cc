@@ -57,16 +57,16 @@ volatile bool stop = false;
 
 void * worker( void * arg ) {
 	size_t id = (size_t)arg;
-	size_t cnt = 0, a = 0;
 	Aligned batch = { batches[id] };
+	size_t cnt = 0, a = 0;
 
-	for ( ; ! stop; ) {
-		for ( ssize_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations
-			batch.col[i] = malloc( i & 1 ? 42 : 192 );
+	for ( ; ! stop; ) {									// loop for T second
+		for ( ssize_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations, oppose order from frees
+			batch.col[i] = malloc( i & 1 ? 42 : 192 );	// two allocation sizes
 		} // for
 
 		Aligned obatch = batch;
-		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // exchange
+		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // atomic exchange
 			if ( stop ) goto fini;
 			a = cycleUp( a, Threads );					// try another batch
 		} // while
@@ -74,8 +74,8 @@ void * worker( void * arg ) {
 		for ( size_t i = 0; i < Batch; i += 1 ) {		// deallocations
 			free( batch.col[i] );
 		} // for
-		cnt += Batch;
-		a = cycleUp( a, Threads );
+		cnt += Batch;									// sum allocations/frees
+		a = cycleUp( a, Threads );						// modulo N increment
 	} // for
   fini: ;
 	times[id] = cnt;									// return throughput
