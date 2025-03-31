@@ -57,12 +57,13 @@ volatile bool stop = false;
 
 void * worker( void * arg ) {
 	size_t id = (size_t)arg;
-	Aligned batch = { batches[id] };
+	Aligned batch = { batches[id] };					// thread local
 	size_t cnt = 0, a = 0;
 
 	for ( ; ! stop; ) {									// loop for T second
 		for ( ssize_t i = Batch - 1; i >= 0; i -= 1 ) { // allocations, oppose order from frees
 			batch.col[i] = malloc( i & 1 ? 42 : 192 );	// two allocation sizes
+			*(int *)batch.col[i] = 42;					// write storage
 		} // for
 
 		Aligned obatch = batch;
@@ -72,7 +73,8 @@ void * worker( void * arg ) {
 		} // while
 
 		for ( size_t i = 0; i < Batch; i += 1 ) {		// deallocations
-			free( batch.col[i] );
+			if ( *(int *)batch.col[i] != 42 ) abort();	// read storage
+			free( batch.col[i] );						// remote free
 		} // for
 		cnt += Batch;									// sum allocations/frees
 		a = cycleUp( a, Threads );						// modulo N increment
