@@ -66,7 +66,7 @@ enum { EXPERIMENTS = 17 };
 
 #define PRINT_DOTS
 #ifdef PRINT_DOTS
-#define DOTS() if ( tid == 0 ) {printf( "." ); fflush( stdout ); }
+#define DOTS() if ( tid == 0 ) { printf( "." ); fflush( stdout ); }
 #else
 #define DOTS()
 #endif // PRINT
@@ -626,7 +626,7 @@ int main() {
 	for ( unsigned int e = 0; e < EXPERIMENTS; e += 1 ) {
 		delete [] eresults[e];
 	} // for
-	delete eresults;
+	delete [] eresults;
 	// malloc_stats();
 } // main
 
