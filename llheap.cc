@@ -725,7 +725,7 @@ static void heapManagerCtor() {
 
 	spin_release( &heapMaster.mgrLock );
 
-	// Trigger thread_local storage implicit allocation, which(causes a dynamic allocation but not a recursive entry
+	// Trigger thread_local storage implicit allocation, which causes a dynamic allocation but not a recursive entry
 	// because heapManager is set above.
 	threadManager.trigger = true;						// any value works
 } // heapManagerCtor
@@ -776,19 +776,19 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 		malloc_stats();
 
 		#ifdef __STATISTICS__
-		char helpText[64];
-		int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket size / allocations / reuses)\n" );
+		char helpText[128];
+		int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket-size/allocations/reuses)\n" );
 		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 
 		size_t th = 0, total = 0;
 		for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
 			enum { Columns = 8 };
-			len = snprintf( helpText, sizeof(helpText), "Heap %zd\n", th );
+			len = snprintf( helpText, sizeof(helpText), "Heap %'zd\n", th );
 			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 			for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
 				if ( heap->freeLists[b].allocations != 0 ) {
 					total += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
-					len = snprintf( helpText, sizeof(helpText), "%zd %zd %zd, ",
+					len = snprintf( helpText, sizeof(helpText), "%'zd/%'zd/%'zd, ",
 									heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
 					unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 					if ( ++c % Columns == 0 )
@@ -797,7 +797,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 			} // for
 			unused = write( STDERR_FILENO, "\n", 1 );	// file might be closed
 		} // for
-		len = snprintf( helpText, sizeof(helpText), "Total bucket storage %zd\n", total );
+		len = snprintf( helpText, sizeof(helpText), "Total bucket storage %'zd\n", total );
 		unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 		#endif // __STATISTICS__
 	} // if
@@ -828,21 +828,21 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 
 #ifdef __STATISTICS__
 #define prtFmt \
-	"\nPID: %d Heap%s statistics: (storage request / allocation)\n" \
-	"  malloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  aalloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  calloc    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  memalign  >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  amemalign >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  resize    >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu / %'llu bytes\n" \
+	"\nPID: %d Heap%s statistics: (storage request/allocation)\n" \
+	"  malloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  aalloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  calloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  memalign  >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  amemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  resize    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n" \
 	"            copies %'llu; smaller %'llu; alignment %'llu; 0 fill %'llu\n" \
-	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  remote    pushes %'llu; pulls %'llu; storage %'llu / %'llu bytes\n" \
+	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  remote    pushes %'llu; pulls %'llu; storage %'llu/%'llu bytes\n" \
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
-	"  mmap      calls %'llu; storage %'llu / %'llu bytes\n" \
-	"  munmap    calls %'llu; storage %'llu / %'llu bytes\n" \
+	"  mmap      calls %'llu; storage %'llu/%'llu bytes\n" \
+	"  munmap    calls %'llu; storage %'llu/%'llu bytes\n" \
 	"  remainder calls %'llu; storage %'llu bytes\n" \
 	"  threads   started %'llu; exited %'llu\n" \
 	"  heaps     new %'llu; reused %'llu\n"
@@ -877,20 +877,20 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	"<heap nr=\"0\">\n" \
 	"<sizes>\n" \
 	"</sizes>\n" \
-	"<total type=\"malloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"aalloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"calloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"amemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"cmemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"resize\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"       \" copy count=\"%'llu;\" smaller count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
-	"<total type=\"remote\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"malloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"aalloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"calloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"amemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"cmemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"resize\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"       \" copy count=\"%'llu;\" smaller count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"remote\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"sbrk\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
-	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu / %'llu\" / > bytes\n" \
-	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu / %'llu\"/> bytes\n" \
+	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"remainder\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"threads\" started=\"%'llu;\" exited=\"%'llu\"/>\n" \
 	"<total type=\"heaps\" new=\"%'llu;\" reused=\"%'llu\"/>\n" \
@@ -1230,7 +1230,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			#endif // __STATISTICS__
 		} else {
 			// Get storage from free block using bump allocation.
-			tsize = freeHead->blockSize;				// optimization, bucket size for request space
+			tsize = freeHead->blockSize;				// optimization, bucket size for request
 			ptrdiff_t rem = heapManager->heapReserve - tsize;
 			if ( LIKELY( rem >= 0 ) ) {					// bump storage ?
 				heapManager->heapReserve = rem;
