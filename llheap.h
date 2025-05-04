@@ -15,7 +15,7 @@ extern "C" {
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute__ ((malloc)); // reallocarray + alignment
 
 	// New control operations
-	size_t malloc_expansion( void );					// heap expansion size (bytes)
+	size_t malloc_extend( void );						// heap expansion size (bytes)
 	size_t malloc_mmap_start( void );					// crossover allocation size from sbrk to mmap
 	size_t malloc_unfreed( void );						// amount subtracted to adjust for unfreed program storage (debug only)
 

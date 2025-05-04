@@ -432,8 +432,8 @@ struct Heap {
 	enum { NoBucketSizes = 96 };						// number of bucket sizes
 
 	FreeHeader freeLists[NoBucketSizes];				// buckets for different allocation sizes
-	void * heapBuffer;									// start of free storage in buffer
-	size_t heapReserve;									// amount of remaining free storage in buffer
+	void * bufStart;									// start of current buffer
+	size_t bufRemaining;								// remaining free storage in buffer
 
 	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 	Heap * nextHeapManager;								// intrusive link of existing heaps; traversed to collect statistics or check unfreed storage
@@ -502,7 +502,7 @@ static unsigned char CALIGN lookup[LookupSizes];		// O(1) lookup for small sizes
 enum {
 	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXPANSION__ = 8 * 1024 * 1024,
+	__DEFAULT_HEAP_EXTEND__ = 8 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
@@ -528,16 +528,18 @@ namespace {												// hide static members
 		SpinLock_t extLock;								// protects allocation-buffer extension
 		SpinLock_t mgrLock;								// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
 
-		void * heapBegin;								// start of heap
-		void * heapEnd;									// logical end of heap
-		size_t heapRemaining;							// amount of storage not allocated in the current chunk
+		void * sbrkStart;								// start of sbrk storage
+		void * sbrkEnd;									// end of sbrk area (logical end of heap)
+		size_t sbrkRemaining;							// amount of free storage at end of sbrk area
+		size_t sbrkExtend;								// sbrk extend amount
 		size_t pageSize;								// architecture pagesize
-		size_t heapExpand;								// sbrk advance
 		size_t mmapStart;								// cross over point for mmap
 		size_t maxBucketsUsed;							// maximum number of buckets in use
 
-		Heap * heapManagersList;						// heap-list head
-		Heap * freeHeapManagersList;					// free-list head
+		#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
+		Heap * heapManagersList;						// heap stack head
+		#endif // __STATISTICS__ || __DEBUG__
+		Heap * freeHeapManagersList;					// free stack head
 
 		// Heap superblocks are not linked; heaps in superblocks are linked via intrusive links.
 		Heap * heapManagersStorage;						// next heap to use in heap superblock
@@ -586,9 +588,9 @@ void HeapMaster::heapMasterCtor() {
 	heapMaster.mgrLock = 0;
 
 	char * end = (char *)sbrk( 0 );
-	heapMaster.heapBegin = heapMaster.heapEnd = sbrk( (char *)Ceiling( (long unsigned int)end, __ALIGN__ ) - end ); // move start of heap to multiple of alignment
-	heapMaster.heapRemaining = 0;
-	heapMaster.heapExpand = malloc_expansion();
+	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, __ALIGN__ ) - end ); // move start of heap to multiple of alignment
+	heapMaster.sbrkRemaining = 0;
+	heapMaster.sbrkExtend = malloc_extend();
 	heapMaster.mmapStart = malloc_mmap_start();
 
 	// find the closest bucket size less than or equal to the mmapStart size
@@ -598,7 +600,9 @@ void HeapMaster::heapMasterCtor() {
 	assert( heapMaster.maxBucketsUsed < Heap::NoBucketSizes ); // subscript failure ?
 	assert( heapMaster.mmapStart <= bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
 
+	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 	heapMaster.heapManagersList = nullptr;
+	#endif // __STATISTICS__ || __DEBUG__
 	heapMaster.freeHeapManagersList = nullptr;
 
 	heapMaster.heapManagersStorage = nullptr;
@@ -640,6 +644,7 @@ void HeapMaster::heapMasterCtor() {
 Heap * HeapMaster::getHeap() {
 	Heap * heap;
 	if ( heapMaster.freeHeapManagersList ) {			// free heap for reused ?
+		// pop heap from stack of free heaps for reusability
 		heap = heapMaster.freeHeapManagersList;
 		heapMaster.freeHeapManagersList = heap->nextFreeHeapManager;
 
@@ -669,8 +674,8 @@ Heap * HeapMaster::getHeap() {
 
 		#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 		heap->nextHeapManager = heapMaster.heapManagersList;
-		#endif // __STATISTICS__ || __DEBUG__
 		heapMaster.heapManagersList = heap;
+		#endif // __STATISTICS__ || __DEBUG__
 
 		#ifdef __STATISTICS__
 		heapMaster.new_heap += 1;
@@ -696,8 +701,8 @@ Heap * HeapMaster::getHeap() {
 			};
 		} // for
 
-		heap->heapBuffer = nullptr;
-		heap->heapReserve = 0;
+		heap->bufStart = nullptr;
+		heap->bufRemaining = 0;
 		heap->nextFreeHeapManager = nullptr;
 
 		#ifdef __DEBUG__
@@ -734,7 +739,7 @@ static void heapManagerCtor() {
 static void heapManagerDtor() {
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
-	// push heap onto list of free heaps for reusability
+	// push heap from stack of free heaps for reusability
 	heapManager->nextFreeHeapManager = heapMaster.freeHeapManagersList;
 	heapMaster.freeHeapManagersList = heapManager;
 
@@ -950,7 +955,7 @@ static void clearStats() {
 extern "C" void noMemory( void ) {
 	abort( "**** Error **** heap memory exhausted at %zu bytes.\n"
 		   "Possible cause is very large memory allocation and/or large amount of unfreed storage allocated by the program or system/library routines.",
-		   ((char *)(sbrk( 0 )) - (char *)(heapMaster.heapBegin)) );
+		   ((char *)(sbrk( 0 )) - (char *)(heapMaster.sbrkStart)) );
 } // noMemory
 
 
@@ -996,7 +1001,7 @@ static inline __attribute__((always_inline)) void checkHeader( bool check, const
 	if ( UNLIKELY( check ) ) {							// bad address ?
 		abort( "**** Error **** attempt to %s storage %p with address outside the heap range %p<->%p.\n"
 			   "Possible cause is duplicate free on same block or overwriting of memory.",
-			   name, addr, heapMaster.heapBegin, heapMaster.heapEnd );
+			   name, addr, heapMaster.sbrkStart, heapMaster.sbrkEnd );
 	} // if
 } // checkHeader
 
@@ -1021,7 +1026,7 @@ bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::St
 
 	#ifdef __DEBUG__
 	// Mapped addresses can be any values.
-	if ( LIKELY( ! MmappedBit( header ) ) ) checkHeader( header < heapMaster.heapBegin, name, addr ); // bad low address ?
+	if ( LIKELY( ! MmappedBit( header ) ) ) checkHeader( header < heapMaster.sbrkStart, name, addr ); // bad low address ?
 	#endif // __DEBUG__
 
 	if ( LIKELY( ! StickyBits( header ) ) ) {			// no sticky bits ?
@@ -1030,7 +1035,7 @@ bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::St
 	} else {
 		fakeHeader( header, alignment );
 		if ( UNLIKELY( MmappedBit( header ) ) ) {		// mapped storage ?
-			assert( addr < heapMaster.heapBegin || heapMaster.heapEnd < addr );
+			assert( addr < heapMaster.sbrkStart || heapMaster.sbrkEnd < addr );
 			size = ClearStickyBits( header->kind.real.blockSize ); // mmap size
 			freeHead = nullptr;							// prevent uninitialized warning
 			return true;
@@ -1041,7 +1046,7 @@ bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::St
 	size = freeHead->blockSize;
 
 	#ifdef __DEBUG__
-	checkHeader( header < heapMaster.heapBegin || heapMaster.heapEnd < header, name, addr ); // bad address ? (offset could be + or -)
+	checkHeader( header < heapMaster.sbrkStart || heapMaster.sbrkEnd < header, name, addr ); // bad address ? (offset could be + or -)
 
 	Heap * homeManager;
 	if ( UNLIKELY( freeHead == nullptr || // freed and only free-list node => null link
@@ -1061,16 +1066,15 @@ bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::St
 static inline __attribute__((always_inline)) void * master_extend( size_t size ) {
 	spin_acquire( &heapMaster.extLock );
 
-	ptrdiff_t rem = heapMaster.heapRemaining - size;
+	ptrdiff_t rem = heapMaster.sbrkRemaining - size;
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
-
-		size_t increase = Ceiling( size > heapMaster.heapExpand ? size : heapMaster.heapExpand, __ALIGN__ );
+		size_t increase = Ceiling( size > heapMaster.sbrkExtend ? size : heapMaster.sbrkExtend, __ALIGN__ );
 		if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) {	// failed, no memory ?
 			spin_release( &heapMaster.extLock );
 			abort( NO_MEMORY_MSG, size );				// give up
 		} // if
-		rem = heapMaster.heapRemaining + increase - size;
+		rem = heapMaster.sbrkRemaining + increase - size;
 
 		#ifdef __STATISTICS__
 		heapMaster.sbrk_calls += 1;
@@ -1078,9 +1082,9 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 		#endif // __STATISTICS__
 	} // if
 
-	Heap::Storage * block = (Heap::Storage *)heapMaster.heapEnd;
-	heapMaster.heapRemaining = rem;
-	heapMaster.heapEnd = (char *)heapMaster.heapEnd + size;
+	Heap::Storage * block = (Heap::Storage *)heapMaster.sbrkEnd;
+	heapMaster.sbrkRemaining = rem;
+	heapMaster.sbrkEnd = (char *)heapMaster.sbrkEnd + size;
 
 	spin_release( &heapMaster.extLock );
 	return block;
@@ -1088,18 +1092,16 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 
 
 static void * manager_extend( size_t size ) {
-	ptrdiff_t rem;
-
 	// If the size requested is bigger than the current remaining reserve, so increase the reserve.
-	size_t increase = Ceiling( size > ( heapMaster.heapExpand / 10 ) ? size : ( heapMaster.heapExpand / 10 ), __ALIGN__ );
+	size_t increase = Ceiling( size > ( heapMaster.sbrkExtend / 16 ) ? size : ( heapMaster.sbrkExtend / 16 ), __ALIGN__ );
 	void * newblock = master_extend( increase );
 
 	// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
 	// For sequential programs, this check is always true.
-	if ( newblock != (char *)heapManager->heapBuffer + heapManager->heapReserve ) {
+	if ( newblock != (char *)heapManager->bufStart + heapManager->bufRemaining ) {
 		// Otherwise, find the closest bucket size to the remaining storage in the reserve block and chain it onto
 		// that free list. Distributing the storage across multiple free lists is an option but takes time.
-		rem = heapManager->heapReserve;				// positive
+		ptrdiff_t rem = heapManager->bufRemaining;		// positive
 
 		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
 			#ifdef __STATISTICS__
@@ -1116,21 +1118,16 @@ static void * manager_extend( size_t size ) {
 			// The remaining storage may not be bucket size, whereas all other allocations are. Round down to previous
 			// bucket size in this case.
 			if ( UNLIKELY( freeHead->blockSize > (size_t)rem ) ) freeHead -= 1;
-			Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
+			Heap::Storage * block = (Heap::Storage *)heapManager->bufStart;
 
 			block->header.kind.real.next = freeHead->freeList; // push on stack
 			freeHead->freeList = block;
 		} // if
 	} // if
 
-	heapManager->heapBuffer = newblock;
-	rem = increase - size;
-
-	heapManager->heapReserve = rem;
-	Heap::Storage * block = (Heap::Storage *)heapManager->heapBuffer;
-	heapManager->heapBuffer = (char *)heapManager->heapBuffer + size;
-
-	return block;
+	heapManager->bufRemaining = increase - size;
+	heapManager->bufStart = (char *)newblock + size;
+	return newblock;
 } // manager_extend
 
 
@@ -1231,11 +1228,11 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		} else {
 			// Get storage from free block using bump allocation.
 			tsize = freeHead->blockSize;				// optimization, bucket size for request
-			ptrdiff_t rem = heapManager->heapReserve - tsize;
+			ptrdiff_t rem = heapManager->bufRemaining - tsize;
 			if ( LIKELY( rem >= 0 ) ) {					// bump storage ?
-				heapManager->heapReserve = rem;
-				block = (Heap::Storage *)heapManager->heapBuffer;
-				heapManager->heapBuffer = (char *)heapManager->heapBuffer + tsize;
+				heapManager->bufRemaining = rem;
+				block = (Heap::Storage *)heapManager->bufStart;
+				heapManager->bufStart = (char *)heapManager->bufStart + tsize;
 			#ifdef __OWNERSHIP__
 				// Race with adding thread, get next time if lose race.
 			} else if ( UNLIKELY( freeHead->remoteList ) ) { // returned space ?
@@ -1862,7 +1859,7 @@ extern "C" {
 
 
 	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
-	__attribute__((weak)) size_t malloc_expansion() { return __DEFAULT_HEAP_EXPANSION__; }
+	__attribute__((weak)) size_t malloc_extend() { return __DEFAULT_HEAP_EXTEND__; }
 
 	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
 	__attribute__((weak)) size_t malloc_mmap_start() { return __DEFAULT_MMAP_START__; }
@@ -1991,7 +1988,7 @@ extern "C" {
 	  if ( value < 0 ) return 0;
 		switch( option ) {
 		  case M_TOP_PAD:
-			heapMaster.heapExpand = Ceiling( value, heapMaster.pageSize );
+			heapMaster.sbrkExtend = Ceiling( value, heapMaster.pageSize );
 			return 1;
 		  case M_MMAP_THRESHOLD:
 			if ( setMmapStart( value ) ) return 1;
