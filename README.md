@@ -6,48 +6,48 @@ $ make all
 
 Creates 8 libraries that can be linked to a program to replace the default memory allocator.
 
-* **`libllheap.o`** statically-linkable allocator with optimal performance without statistics or debugging.
-* **`libllheap-debug.o`** statically-linkable allocator with debugging.
-* **`libllheap-stats.o`** statically-linkable allocator with statistics.
-* **`libllheap-stats-debug.o`** statically-linkable allocator with debugging and statistics.
-* **`libllheap.so`** dynamically-linkable allocator with optimal performance without statistics or debugging.
-* **`libllheap-debug.so`** dynamically-linkable allocator with debugging.
-* **`libllheap-stats.so`** dynamically-linkable allocator with statistics.
-* **`libllheap-stats-debug.so`** dynamically-linkable allocator with debugging and statistics.
+* `libllheap.o` statically-linkable allocator with optimal performance without statistics or debugging.
+* `libllheap-debug.o` statically-linkable allocator with debugging.
+* `libllheap-stats.o` statically-linkable allocator with statistics.
+* `libllheap-stats-debug.o` statically-linkable allocator with debugging and statistics.
+* `libllheap.so` dynamically-linkable allocator with optimal performance without statistics or debugging.
+* `libllheap-debug.so` dynamically-linkable allocator with debugging.
+* `libllheap-stats.so` dynamically-linkable allocator with statistics.
+* `libllheap-stats-debug.so` dynamically-linkable allocator with debugging and statistics.
 
 The Makefile has building options.
 
-* __FASTLOOKUP__ (default) use O(1) table lookup from allocation size to bucket size for small allocations.
-* __OWNERSHIP__	 (default) return freed memory to owner thread.
-* __RETURNSPIN__ (default) use spinlock for mutual exclusion versus lockfree stack.
-* __NULL_0_ALLOC__ (default) return an allocation addresses for a 0-sized allocation rather than a null pointer.
+* `__FASTLOOKUP__` (default) use O(1) table lookup from allocation size to bucket size for small allocations.
+* `__OWNERSHIP__` (default) return freed memory to owner thread.
+* `__RETURNSPIN__` (not default) use spinlock for mutual exclusion versus lockfree stack.
+* `__NULL_0_ALLOC__` (default) return an allocation addresses for a 0-sized allocation rather than a null pointer.
 
 # Memory Allocator Design
 
 llheap is a fast concurrent (heap-per-thread) memory allocator for managed programing languages with low latency at the cost of a slightly larger memory footprints.
 The implementation provides the following GNUC library routines.
 
-        void * malloc( size_t size )
-        void * calloc( size_t dimension, size_t size )
-        void * realloc( void * oaddr, size_t size )
-        void * reallocarray( void * oaddr, size_t dimension, size_t size )
-        void free( void * addr )
-        void * memalign( size_t alignment, size_t size )
-        void * aligned_alloc( size_t alignment, size_t size )
-        int posix_memalign( void ** memptr, size_t alignment, size_t size )
-        void * valloc( size_t size )
-        void * pvalloc( size_t size )
-        int mallopt( int option, int value )
-        size_t malloc_usable_size( void * addr )
-        void malloc_stats( void )
-        int malloc_info( int options, FILE * fp )
+		void * malloc( size_t size );
+		void * calloc( size_t dimension, size_t size );
+		void * realloc( void * oaddr, size_t size );
+		void * reallocarray( void * oaddr, size_t dimension, size_t size );
+		void free( void * addr );
+		void * memalign( size_t alignment, size_t size );
+		void * aligned_alloc( size_t alignment, size_t size );
+		int posix_memalign( void ** memptr, size_t alignment, size_t size );
+		void * valloc( size_t size );
+		void * pvalloc( size_t size );
+		int mallopt( int option, int value );
+		size_t malloc_usable_size( void * addr );
+		void malloc_stats( void );
+		int malloc_info( int options, FILE * fp );
 
 Unsupported routines.
 
-        struct mallinfo mallinfo( void )
-        int malloc_trim( size_t )`
-        void * malloc_get_state( void )`
-        int malloc_set_state( void * )`
+		struct mallinfo mallinfo( void );
+		int malloc_trim( size_t );
+		void * malloc_get_state( void );
+		int malloc_set_state( void * );
 
 ## Objective
 
@@ -63,10 +63,10 @@ The llheap objectives are:
 
 * `malloc` remembers the original allocation size separate from the actual allocation size.
 * `calloc` sets the sticky zero-fill property.
-* `memalign`, `aligned_alloc`, `posix_memalign`, `valloc` and `pvalloc` set the alignment sticky property, remembering the specified alignment size.
-* `realloc` and `reallocarray` preserved all sticky properties when moving and increasing space.
-* `malloc_stats` prints (default standard error) detailed statistics of allocation/free operations when linked with a statistic version.
-  Existence of shell variable MALLOC_STATS implicitly calls malloc_stats at program termination.
+* `memalign`, `aligned_alloc`, `posix_memalign`, `valloc` and `pvalloc` set the sticky alignment property, remembering the specified alignment size.
+* `realloc` and `reallocarray` preserve sticky properties across copying.
+* `malloc_stats` prints detailed statistics of allocation/free operations when linked with a statistic version.
+* Existence of shell variable `MALLOC_STATS` implicitly calls `malloc_stats` at program termination.
 
 ## Added Features
 
@@ -75,8 +75,7 @@ The following allocation features are available with llheap.
 ### New allocation operations
 
 ### `void * aalloc( size_t dimension, size_t elemSize )`
-extends `calloc` for dynamic array allocation *without* zero-filling the memory.
-Significantly faster than `calloc`.
+extends `calloc` for dynamic array allocation *without* zero-filling the memory (faster than `calloc`).
 
 **Parameters:**
 
@@ -86,9 +85,8 @@ Significantly faster than `calloc`.
 **Return:** address of the dynamic array or NULL if allocation fails.
 
 ### `void * resize( void * oaddr, size_t size )`
-extends `realloc` for resizing an allocation *without* copying previous data into the new allocation.
+extends `realloc` for resizing an allocation *without* copying previous data into the new allocation (faster than `realloc`).
 No sticky properties are preserved.
-Significantly faster than `realloc`.
 
 **Parameters:**
 
@@ -98,9 +96,8 @@ Significantly faster than `realloc`.
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
 
 ### `void * resizearray( void * oaddr, size_t dimension, size_t elemSize )`
-extends `resize` for an array allocation.
+extends `resize` for an array allocation (faster than `reallocarray`).
 No sticky properties are preserved.
-Significantly faster than `reallocarray`.
 
 **Parameters:**
 
@@ -182,26 +179,29 @@ All sticky properties are preserved.
 
 ### New control operations
 
-These routines are called *once* during llheap startup to set specific limits.
-To set a value, define a specific routine in an application and return the desired value.
+These routines are called *once* during llheap startup to set specific limits *before* an application starts.
+Setting these value early is essential because allocations can occur from the dynamic loader and other libraries before application code executes.
+To set a value, define a specific routine in an application and return the desired value, e.g.:
 
-### `size_t malloc_expansion( void )`
-set the amount (bytes) to extend the heap when there is insufficient free storage to service an allocation request.
+		size_t malloc_extend() { return 16 * 1024 * 1024; }
+
+### `size_t malloc_extend( void )`
+return the number of bytes to extend the `sbrk` area when there is insufficient free storage to service an allocation request.
 
 **Return:** heap extension size used throughout a program.
 
 ### `size_t malloc_mmap_start( void )`
-set the crossover allocation size from the contiguous `sbrk` area to separate mmapped areas.
+return the crossover allocation size from the `sbrk` area to separate mapped areas.
 Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
 
 **Return:** crossover point used throughout a program.
 
 ### `size_t malloc_unfreed( void )`
-amount subtracted to adjust for global unfreed program storage, such as `printf` (debug only).
+return the amount subtracted from the global unfreed program storage to adjust for unreleased storage from routines like `printf` (debug only).
 
 **Return:** new subtraction amount and called by `malloc_stats`.
 
-### New preserved-property access
+### New object preserved-properties
 
 ### `size_t malloc_size( void * addr )`
 returns the requested size of a dynamic object, which is updated when an object is resized. See also `malloc_usable_size`.
@@ -213,7 +213,7 @@ returns the requested size of a dynamic object, which is updated when an object 
 **Return:** request size or zero if `addr` is NULL.
 
 ### `size_t malloc_alignment( void * addr )`
-returns the alignment of the dynamic object, where the minimal alignment is 16 bytes.
+returns the object alignment, where the minimal alignment is 16 bytes.
 
 **Parameters:**
 
@@ -222,7 +222,7 @@ returns the alignment of the dynamic object, where the minimal alignment is 16 b
 **Return:** alignment of the given object, where objects not allocated with alignment return the minimal allocation alignment.
 
 ### `bool malloc_zero_fill( void * addr )`
-indicates if the dynamic object is zero filled.
+returns if the object is zero filled.
 
 **Parameters:**
 
@@ -231,7 +231,7 @@ indicates if the dynamic object is zero filled.
 **Return:** true if the zero-fill sticky property is set and false otherwise.
 
 ### `bool malloc_remote( void * addr )`
-indicates if the dynamic object is from a remote heap (OWNERSHIP only).
+returns if the object is from a remote heap (`OWNERSHIP` only).
 
 **Parameters:**
 
@@ -251,4 +251,3 @@ clear the statistics counters for all thread heaps.
 
 ### `void heap_stats()`
 extends `malloc_stats` to only print statistics for the heap associated with the executing thread.
-
