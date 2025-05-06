@@ -493,7 +493,7 @@ static void statistics( size_t N, double values[], double * avg, double * std, d
 
 
 // llheap only
-extern "C" size_t malloc_unfreed() { return 6211; }		// printf(1024)/setlocale(3939)/pthread(1248)
+extern "C" size_t malloc_unfreed() { return 6324; }		// printf(1024)/setlocale(4000)/pthread(1300)
 
 int main() {
 	setlocale( LC_NUMERIC, getenv( "LANG" ) );			// separators in numbers
