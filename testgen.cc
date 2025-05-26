@@ -48,7 +48,7 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 static pthread_barrier_t barrier;
 
-enum : uint64_t { TIMES = 5'000'000'000, TIMES2 = TIMES / 5'000 };
+enum : uint64_t { TIMES = 5'000'000'00, TIMES2 = TIMES / 5'000 };
 #define FIXED 42
 #define FIXED2 1'048'576
 #define GROUP1 100
@@ -523,17 +523,17 @@ int main() {
 	#endif // plg2
 	enum { threads = sizeof( THREADS ) / sizeof( THREADS[0] ) };
 
-	eresults = new double *[EXPERIMENTS];
+	eresults = (double **)malloc( sizeof( double *[EXPERIMENTS] ) );
 	for ( unsigned int e = 0; e < EXPERIMENTS; e += 1 ) {
-		eresults[e] = new double[THREADS[threads - 1]];
+		eresults[e] = (double *)malloc( sizeof( double[THREADS[threads - 1]] ) );
 	} // for
 
 	// Allocate largest case thread table.
-	double *** tresults = new double **[THREADS[threads - 1]];
+	double *** tresults = (double ***)malloc( sizeof( double **[THREADS[threads - 1]] ) );
 	for ( unsigned int t = 0; t < THREADS[threads - 1]; t += 1 ) {
-		tresults[t] = new double *[EXPERIMENTS];
+		tresults[t] = (double **)malloc( sizeof( double *[EXPERIMENTS] ) );
 		for ( unsigned int e = 0; e < EXPERIMENTS; e += 1 ) {
-			tresults[t][e] = new double[3];
+			tresults[t][e] = (double *)malloc( sizeof( double[3] ) );
 		} // for
 	} // for
 
@@ -617,16 +617,16 @@ int main() {
 
 	for ( unsigned int t = 0; t < THREADS[threads - 1]; t += 1 ) {
 		for ( unsigned int e = 0; e < EXPERIMENTS; e += 1 ) {
-			delete [] tresults[t][e];
+			free( tresults[t][e] );
 		} // for
-		delete [] tresults[t];
+		free( tresults[t] );
 	} // for
-	delete [] tresults;
+	free( tresults );
 
 	for ( unsigned int e = 0; e < EXPERIMENTS; e += 1 ) {
-		delete [] eresults[e];
+		free( eresults[e] );
 	} // for
-	delete [] eresults;
+	free( eresults );
 	// malloc_stats();
 } // main
 
