@@ -1,0 +1,73 @@
+#!/bin/sh -
+
+exec=a.out
+hostname=`hostname`
+echo -n "======================\n${hostname}\n======================\n"
+
+allocsdir="${HOME}/software/allocators"
+allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+
+cflag="-g -Wall -O3 -Wextra  -D${hostname}" # -DLINEARAFF
+if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
+#    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
+    atomicinst=-march=armv8.2-a+lse	# use ARM LSE instructions for atomics
+    cflag=${cflag}" ${atomicinst}"
+fi
+
+# select newest compiler available for OS
+osversion=`lsb_release -sr`
+if [ "${osversion}" = "24.04" ] ; then
+    CC=g++-14
+elif [ "${osversion}" = "22.04" ] ; then
+    CC=g++-12
+elif [ "${osversion}" = "20.04" ] ; then
+    CC=g++-10
+else
+    echo "unknown operating system"
+    exit -1
+fi
+
+rm -rf core
+
+# force initial thread to start on socket boundary
+if [ "${hostname}" = "swift" ] ; then
+    taskset="taskset --cpu-list 128"
+elif [ "${hostname}" = "java" ] ; then
+    taskset="taskset --cpu-list 0"
+elif [ "${hostname}" = "prolog" ] ; then
+    taskset="taskset --cpu-list 0"
+elif [ "${hostname}" = "algol" ] ; then
+    taskset="taskset --cpu-list 0"
+elif [ "${hostname}" = "jax" ] ; then
+    taskset="taskset --cpu-list 24"
+else
+    echo "unknown machine name"
+    exit -1
+fi
+
+#strace="strace -cfq"
+time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
+#program="vector"
+program="realloc"
+#program="malloc"
+
+echo -n "\n**********************\nglibc\n**********************\n\n"
+for dim in 4 8 16 32 ; do
+    # compile with preload => dynamic linking
+    #echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
+    ${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
+    eval ${time} ${strace} ${taskset} ./${exec} ${args}
+done
+
+for allocator in ${allocators} ; do
+    echo -n "\n**********************\n${allocator}\n**********************\n\n"
+    for dim in 4 8 16 32 ; do
+        # compile with preload => dynamic linking
+	#echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
+	${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
+	export LD_PRELOAD=${allocsdir}/${allocator}
+	eval ${time} ${strace} ${taskset} ./${exec} ${args}
+    done
+done
+
+rm -f "${exec}"
