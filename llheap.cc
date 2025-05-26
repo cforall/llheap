@@ -188,6 +188,11 @@ static inline __attribute__((always_inline)) void spin_release( volatile SpinLoc
 #include <execinfo.h>									// backtrace, backtrace_symbols
 #include <cxxabi.h>										// __cxa_demangle
 
+// Replaced by C version when compiled with C++.
+extern "C" __attribute__(( weak )) char * abi::__cxa_demangle( const char * mangled_name, char *, size_t *, int * ) {
+	return const_cast<char *>(mangled_name);
+}
+
 static void backtrace( int start ) {
 	enum {
 		Frames = 50,									// maximum number of stack frames
@@ -429,7 +434,7 @@ struct Heap {
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
 	// Break recursion by hardcoding number of buckets and statically checking number is correct after bucket array defined.
-	enum { NoBucketSizes = 96 };						// number of bucket sizes
+	enum { NoBucketSizes = 60 };						// number of bucket sizes
 
 	FreeHeader freeLists[NoBucketSizes];				// buckets for different allocation sizes
 	void * bufStart;									// start of current buffer
@@ -456,22 +461,22 @@ static const unsigned int CALIGN bucketSizes[] = {		// different bucket sizes
 	// There is no 0-sized bucket becasue it is better to create a 16 byte bucket for rare malloc(0), which can be
 	// reused later by a 16-byte allocation.
 	16 + sizeof(Heap::Storage), 32 + sizeof(Heap::Storage), 48 + sizeof(Heap::Storage), 64 + sizeof(Heap::Storage), // 4
-	80 + sizeof(Heap::Storage), 96 + sizeof(Heap::Storage), 112 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 4
+	96 + sizeof(Heap::Storage), 128 + sizeof(Heap::Storage), // 2
 	160, 192, 224, 256 + sizeof(Heap::Storage), // 4
 	320, 384, 448, 512 + sizeof(Heap::Storage), // 4
 	640, 768, 896, 1'024 + sizeof(Heap::Storage), // 4
 	1'536, 2'048 + sizeof(Heap::Storage), // 2
 	2'560, 3'072, 3'584, 4'096 + sizeof(Heap::Storage), // 4
 	6'144, 8'192 + sizeof(Heap::Storage), // 2
-	9'216, 10'240, 11'264, 12'288, 13'312, 14'336, 15'360, 16'384 + sizeof(Heap::Storage), // 8
-	18'432, 20'480, 22'528, 24'576, 26'624, 28'672, 30'720, 32'768 + sizeof(Heap::Storage), // 8
-	36'864, 40'960, 45'056, 49'152, 53'248, 57'344, 61'440, 65'536 + sizeof(Heap::Storage), // 8
-	73'728, 81'920, 90'112, 98'304, 106'496, 114'688, 122'880, 131'072 + sizeof(Heap::Storage), // 8
-	147'456, 163'840, 180'224, 196'608, 212'992, 229'376, 245'760, 262'144 + sizeof(Heap::Storage), // 8
-	294'912, 327'680, 360'448, 393'216, 425'984, 458'752, 491'520, 524'288 + sizeof(Heap::Storage), // 8
-	655'360, 786'432, 917'504, 1'048'576 + sizeof(Heap::Storage), // 4
-	1'179'648, 1'310'720, 1'441'792, 1'572'864, 1'703'936, 1'835'008, 1'966'080, 2'097'152 + sizeof(Heap::Storage), // 8
-	2'621'440, 3'145'728, 3'670'016, 4'194'304 + sizeof(Heap::Storage), // 4
+	10'240, 12'288, 14'336, 16'384 + sizeof(Heap::Storage), // 4
+	20'480, 24'576, 28'672, 32'768 + sizeof(Heap::Storage), // 4
+	40'960, 49'152, 57'344, 65'536 + sizeof(Heap::Storage), // 4
+	81'920, 98'304, 114'688, 131'072 + sizeof(Heap::Storage), // 4
+	163'840, 196'608, 229'376, 262'144 + sizeof(Heap::Storage), // 4
+	327'680, 393'216, 458'752, 524'288 + sizeof(Heap::Storage), // 4
+	786'432, 1'048'576 + sizeof(Heap::Storage), // 2
+	1'572'864, 2'097'152 + sizeof(Heap::Storage), // 2
+	3'145'728, 4'194'304 + sizeof(Heap::Storage), // 2
 	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
 };
 
@@ -537,9 +542,9 @@ namespace {												// hide static members
 		size_t maxBucketsUsed;							// maximum number of buckets in use
 
 		#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
-		Heap * heapManagersList;						// heap stack head
+		Heap * heapManagersList;						// heap-stack head
 		#endif // __STATISTICS__ || __DEBUG__
-		Heap * freeHeapManagersList;					// free stack head
+		Heap * freeHeapManagersList;					// free-stack head
 
 		// Heap superblocks are not linked; heaps in superblocks are linked via intrusive links.
 		Heap * heapManagersStorage;						// next heap to use in heap superblock
@@ -575,8 +580,12 @@ static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
-// declare helper functions for HeapMaster
+// Declare helper functions for HeapMaster.
 extern "C" void noMemory( void );						// forward, called by "builtin_new" when malloc returns 0
+// Replaced by C++ version when compiled with C++.
+typedef void (*new_handler)();
+__attribute__(( weak )) new_handler set_new_handler( new_handler ) { return nullptr; };
+//extern "C" __attribute__(( weak )) int __cxa_thread_atexit( void (*)(), void *, void * ) { write( 2, "X", 1 ); return 0; }
 
 
 void HeapMaster::heapMasterCtor() {
@@ -633,7 +642,7 @@ void HeapMaster::heapMasterCtor() {
 	} // for
 	#endif // __FASTLOOKUP__
 
-	std::set_new_handler( noMemory );					// do not throw exception as the default
+	set_new_handler( noMemory );						// do not throw exception as the default
 
 	heapMasterBootFlag = true;
 } // HeapMaster::heapMasterCtor
@@ -739,7 +748,7 @@ static void heapManagerCtor() {
 static void heapManagerDtor() {
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
-	// push heap from stack of free heaps for reusability
+	// push heap onto stack of free heaps for reusability
 	heapManager->nextFreeHeapManager = heapMaster.freeHeapManagersList;
 	heapMaster.freeHeapManagersList = heapManager;
 
@@ -1615,7 +1624,7 @@ extern "C" {
 		#endif // __STATISTICS__
 
 		void * naddr;
-		if ( LIKELY( oalignment <= __ALIGN__ ) ) {			// previous request not aligned ?
+		if ( LIKELY( oalignment <= __ALIGN__ ) ) {		// previous request not aligned ?
 			naddr = doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
 		} else {
 			#ifdef __STATISTICS__
