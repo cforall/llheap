@@ -108,7 +108,7 @@ int main() {
 	// malloc_stats();
 }
 
-// repeat 3 \time -f "%Uu %Ss %Er %Mkb" a.out
+// repeat 3 \time -f "%Uu %Ss %er %Mkb" a.out
 
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
 

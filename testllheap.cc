@@ -520,7 +520,7 @@ int main( int argc, char *argv[] ) {
 	malloc_stats();
 } // main
 
-// /usr/bin/time -f %Uu %Ss %Er %Mkb ./a.out
+// /usr/bin/time -f %Uu %Ss %er %Mkb ./a.out
 
 // Local Variables: //
 // tab-width: 4 //

@@ -2035,6 +2035,5 @@ extern "C" {
 // g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS llheap.cc -fPIC -shared -o llheap.so
 
 // Local Variables: //
-// tab-width: 4 //
 // compile-command: "g++-11 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
 // End: //

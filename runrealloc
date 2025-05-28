@@ -46,12 +46,18 @@ else
 fi
 
 #strace="strace -cfq"
-time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
+time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 program="realloc"
 #program="reallocsim"
+program="reallocshort"
+
+dims="4 8 16 32"
+if [ "${program}" = "reallocshort" ] ; then
+   dims=0
+fi
 
 echo -n "\n**********************\nglibc\n**********************\n\n"
-for dim in 4 8 16 32 ; do
+for dim in ${dims} ; do
     # compile with preload => dynamic linking
     #echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
     ${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
@@ -60,7 +66,7 @@ done
 
 for allocator in ${allocators} ; do
     echo -n "\n**********************\n${allocator}\n**********************\n\n"
-    for dim in 4 8 16 32 ; do
+    for dim in ${dims} ; do
         # compile with preload => dynamic linking
 	#echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
 	${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread

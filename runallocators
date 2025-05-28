@@ -46,7 +46,7 @@ else
 fi
 
 #strace="strace -cfq"
-time='/usr/bin/time -f "%Uu %Ss %Er %Mkb"'
+time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #program="testgen"
 program="ownership"
 #program="larson"
