@@ -47,9 +47,14 @@ fi
 
 #strace="strace -cfq"
 time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
-#program="testgen"
+#program="checksticky"
 program="ownership"
 #program="larson"
+#program="testgen"
+
+checksticky() {
+    eval ${time} ${strace} ${taskset} ./${exec}
+}
 
 larson() {
     #args="5 8 1000 5000 100 4141" # https://github.com/daanx/mimalloc-bench/blob/master/bench.sh
