@@ -3,6 +3,8 @@
 #include <sys/time.h>									// gettimeofday
 #include <sys/resource.h>								// getrusage
 #include <string.h>										// strerror
+
+#define LINEARAFF
 #include "affinity.h"
 
 static timespec currTime() {
@@ -28,18 +30,16 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 	return v ;
 } // pass
 
-void * worker( void * ) {
-	volatile size_t cnt;
-	for ( size_t t = 0; t < 10'000; t += 1 ) {
-		for ( size_t rw = 0; rw < 1'000; rw += 1 ) {
-			size_t * volatile arr = (size_t *)pass( malloc( sizeof(size_t) * 100 ) );
-			for ( size_t r = 0; r < 100; r += 1 ) {
-				cnt += arr[r];
-			} // for
-			// arr[rw] = 0;
-			free( arr );
+enum { ASIZE = 50 }; // 5
+
+void * worker( void * arg ) {
+	volatile size_t * arr = (size_t *)arg;
+	for ( size_t t = 0; t < 10'000'000'000 / ASIZE; t += 1 ) {
+		for ( size_t r = 0; r < ASIZE; r += 1 ) {
+			arr[r] += r;								// reads and writes
 		} // for
 	} // for
+	free( (void *)arr );
 	return nullptr;
 } // worker
 
@@ -75,11 +75,11 @@ int main() {
 
 		pthread_t thread[THREADS[t]];					// thread[0] unused
 		for ( ssize_t tid = 1; tid < THREADS[t]; tid += 1 ) { // N - 1 thread
-			if ( pthread_create( &thread[tid], NULL, worker, (void *)tid ) < 0 ) abort();
+			if ( pthread_create( &thread[tid], NULL, worker, pass( malloc( sizeof(size_t) * ASIZE ) ) ) < 0 ) abort();
 			affinity( thread[tid], tid );
 		} // for
 	
-		worker( nullptr );								// initialize thread runs one test
+		worker( pass( malloc( sizeof(size_t) * ASIZE ) ) );	// initialize thread runs one test
 
 		for ( unsigned int tid = 1; tid < THREADS[t]; tid += 1 ) {
 			if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
