@@ -7,15 +7,14 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 int main() {
 	for ( size_t p = 10; p <= 100; p += 10 ) {
+		bool reuse = false;
 		for ( size_t s = 64; s < 16 * 1024; s <<= 1 ) {
-			bool reuse = false;
 			void * prev = pass( malloc( s ) );
 			void * curr = pass( realloc( prev, s * p / 100 ) );
-			if ( prev == curr ) { reuse = true; }
+			if ( prev == curr ) { printf( "%zd %zd %zd, ", 100 - p, s, s * p / 100 ); reuse = true; }
 			free( curr );
-			printf( "%zd %zd %zd %d ", 100 - p, s, s * p / 100, reuse );
 		} // for
-		printf( "\n" );
+		if ( reuse ) printf( "\n" );
 	} // for
 //	malloc_stats();
 }
