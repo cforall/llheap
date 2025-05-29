@@ -47,10 +47,13 @@ fi
 
 #strace="strace -cfq"
 time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
+#perf="perf stat -B -e cache-references,cache-misses a.out"
+
 #program="checksticky"
-program="ownership"
+#program="ownership"
 #program="larson"
 #program="testgen"
+program="cache"
 
 checksticky() {
     eval ${time} ${strace} ${taskset} ./${exec}
@@ -62,13 +65,13 @@ larson() {
     echo -n "\nlarson arguments ${args}\n"
     for CPU in 4 8 16 32 ; do
 	echo -n "larson procesors ${CPU}\n"
-	eval ${time} ${strace} ${taskset} ./${exec} ${args} ${CPU}
+	eval ${time} ${strace} ${perf} ${taskset} ./${exec} ${args} ${CPU}
     done
 }
 
 ownership() {
     for CPU in 2 4 8 16 32 64 128 ; do
-	eval ${time} ${strace} ${taskset} ./${exec} 30 ${CPU} 100
+	eval ${time} ${strace} ${perf} ${taskset} ./${exec} 30 ${CPU} 100
     done
 }
 
@@ -77,10 +80,10 @@ echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
 ${CC} ${cflag} ${program}.cc -lpthread
 echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
-if [ "${program}" != "testgen" ] ; then
+if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
     ${program}
 else
-    eval ${time} ${strace} ${taskset} ./${exec}
+    eval ${time} ${strace} ${perf} ${taskset} ./${exec}
 fi
 
 for allocator in ${allocators} ; do
@@ -97,10 +100,10 @@ for allocator in ${allocators} ; do
     export LD_PRELOAD=${allocsdir}/${allocator}
 
     # kill pid for a.out to terminate
-    if [ "${program}" != "testgen" ] ; then
+    if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
 	eval ${program}
     else
-	eval ${time} ${strace} ${taskset} ./${exec} ${args}
+	eval ${time} ${strace} ${perf} ${taskset} ./${exec} ${args}
     fi
 done
 

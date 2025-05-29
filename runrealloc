@@ -48,8 +48,8 @@ fi
 #strace="strace -cfq"
 time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #program="reallocshort"
-program="realloc"
-#program="reallocsim"
+#program="realloc"
+program="reallocsim"
 
 dims="4 8 16 32"
 if [ "${program}" = "reallocshort" ] ; then
