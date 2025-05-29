@@ -1,6 +1,7 @@
 #include <stdio.h>										// perror
 #include <pthread.h>
 #include <stdlib.h>										// exit, EXIT_FAILURE
+#include <errno.h>										// errno
 
 void affinity( pthread_t pthreadid, unsigned int tid ) {
 // There are many ways to assign threads to processors: cores, chips, etc.  Below are some alternative approaches.
