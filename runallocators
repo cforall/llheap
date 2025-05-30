@@ -46,7 +46,7 @@ else
 fi
 
 #strace="strace -cfq"
-time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
+#time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #perf="perf stat -B -e cache-references,cache-misses a.out"
 
 #program="checksticky"
@@ -75,10 +75,10 @@ ownership() {
     done
 }
 
-echo -n "\n**********************\nglibc\n**********************\n\n"
-echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
+echo -n "\n\n\"glibc\"\n"
+#echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
 ${CC} ${cflag} ${program}.cc -lpthread
-echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
+#echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 # kill pid for a.out to terminate
 if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
     ${program}
@@ -87,7 +87,7 @@ else
 fi
 
 for allocator in ${allocators} ; do
-    echo -n "\n**********************\n${allocator}\n**********************\n\n"
+    echo -n "\n\n\"${allocator}\"\n"
 
     # compile without preload for checking => dynamic linking
     # echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
@@ -95,7 +95,7 @@ for allocator in ${allocators} ; do
     # echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 
     # compile with preload => dynamic linking
-    echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread\n\n"
+    #echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread\n\n"
     ${CC} ${cflag} ${program}.cc -lpthread ${allocsdir}/${allocator}
     export LD_PRELOAD=${allocsdir}/${allocator}
 

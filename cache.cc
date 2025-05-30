@@ -26,7 +26,7 @@ static inline double dur( timeval end, timeval start ) {
 } // dur
 
 
-enum { TIMES = 10'000'000'000, ASIZE = 5 }; // 50
+enum { TIMES = 10'000'000'000, ASIZE = 3 }; // 30
 
 void * worker( void * arg ) {
 	volatile size_t * arr = (size_t *)arg;
@@ -65,7 +65,8 @@ int main() {
 
 	printf( "read/writes %zd, array size: %zd\n", TIMES / ASIZE * ASIZE, ASIZE );
 	for ( unsigned int t = 0; t < threads; t += 1 ) {
-		printf( "Number of threads: %d\n", THREADS[t] );
+		//printf( "Number of threads: %d\n", THREADS[t] );
+		printf( "%d ", THREADS[t] );
 
 		gettimeofday( &tnow, 0 );
 		getrusage( RUSAGE_SELF, &rnow );
