@@ -25,21 +25,17 @@ static inline double dur( timeval end, timeval start ) {
 	return sec + msec * 1E-6;
 } // dur
 
-static inline void * pass( void * v ) {					// prevent eliding, cheaper than volatile
-	__asm__ __volatile__ ( "" : "+r"(v) );
-	return v ;
-} // pass
 
-enum { ASIZE = 50 }; // 5
+enum { TIMES = 10'000'000'000, ASIZE = 5 }; // 50
 
 void * worker( void * arg ) {
 	volatile size_t * arr = (size_t *)arg;
-	for ( size_t t = 0; t < 10'000'000'000 / ASIZE; t += 1 ) {
+	for ( size_t t = 0; t < TIMES / ASIZE; t += 1 ) {
 		for ( size_t r = 0; r < ASIZE; r += 1 ) {
 			arr[r] += r;								// reads and writes
 		} // for
 	} // for
-	free( (void *)arr );
+	free( (void *)arr );								// cast away volatile
 	return nullptr;
 } // worker
 
@@ -51,6 +47,7 @@ int main() {
 	#else
 		#error no affinity specified
 	#endif
+
 	#if defined( plg2 )
 	unsigned int THREADS[] = { 4 };
 	#else
@@ -66,6 +63,7 @@ int main() {
 	timeval puser = { 0, 0 }, psys = { 0, 0 };
 	gettimeofday( &tbegin, 0 );
 
+	printf( "read/writes %zd, array size: %zd\n", TIMES / ASIZE * ASIZE, ASIZE );
 	for ( unsigned int t = 0; t < threads; t += 1 ) {
 		printf( "Number of threads: %d\n", THREADS[t] );
 
@@ -75,11 +73,11 @@ int main() {
 
 		pthread_t thread[THREADS[t]];					// thread[0] unused
 		for ( ssize_t tid = 1; tid < THREADS[t]; tid += 1 ) { // N - 1 thread
-			if ( pthread_create( &thread[tid], NULL, worker, pass( malloc( sizeof(size_t) * ASIZE ) ) ) < 0 ) abort();
+			if ( pthread_create( &thread[tid], NULL, worker, malloc( sizeof(size_t) * ASIZE ) ) < 0 ) abort();
 			affinity( thread[tid], tid );
 		} // for
 	
-		worker( pass( malloc( sizeof(size_t) * ASIZE ) ) );	// initialize thread runs one test
+		worker( malloc( sizeof(size_t) * ASIZE ) );		// initialize thread runs one test
 
 		for ( unsigned int tid = 1; tid < THREADS[t]; tid += 1 ) {
 			if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
