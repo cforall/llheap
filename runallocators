@@ -2,7 +2,7 @@
 
 exec=a.out
 hostname=`hostname`
-echo -n "======================\n${hostname}\n======================\n"
+echo -n "======================\n${hostname}\n======================"
 
 allocsdir="${HOME}/software/allocators"
 allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
@@ -24,7 +24,7 @@ elif [ "${osversion}" = "20.04" ] ; then
     CC=g++-10
 else
     echo "unknown operating system"
-    exit -1
+    exit 1
 fi
 
 rm -rf core
@@ -41,8 +41,8 @@ elif [ "${hostname}" = "algol" ] ; then
 elif [ "${hostname}" = "jax" ] ; then
     taskset="taskset --cpu-list 24"
 else
-    echo "unknown machine name"
-    exit -1
+    echo -n "\nUsage error unknown machine name "${hostname}."\n"
+    exit 1
 fi
 
 #strace="strace -cfq"
@@ -87,7 +87,8 @@ else
 fi
 
 for allocator in ${allocators} ; do
-    echo -n "\n\n\"${allocator}\"\n"
+    allocatorname=`echo ${allocator} | sed -e "s/lib\(.*\).so/\1/"`
+    echo -n "\n\n\"${allocatorname}\"\n"
 
     # compile without preload for checking => dynamic linking
     # echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
@@ -108,3 +109,5 @@ for allocator in ${allocators} ; do
 done
 
 rm -f "${exec}"
+
+exit 0
