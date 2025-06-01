@@ -52,8 +52,8 @@ fi
 #program="checksticky"
 #program="ownership"
 #program="larson"
-#program="testgen"
-program="cache"
+#program="cache"
+program="testgen"
 
 checksticky() {
     eval ${time} ${strace} ${taskset} ./${exec}
