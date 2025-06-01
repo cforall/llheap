@@ -11,6 +11,7 @@
 #include <unistd.h>										// STDERR_FILENO, sbrk, sysconf, write
 #include <sys/mman.h>									// mmap, munmap
 #include <sys/sysinfo.h>								// get_nprocs
+#include <pthread.h>									// pthread_key_create, pthread_setspecific
 
 #define str(s) #s
 #define xstr(s) str(s)
@@ -187,11 +188,6 @@ static inline __attribute__((always_inline)) void spin_release( volatile SpinLoc
 #ifdef __DEBUG__
 #include <execinfo.h>									// backtrace, backtrace_symbols
 #include <cxxabi.h>										// __cxa_demangle
-
-// Replaced by C version when compiled with C++.
-extern "C" __attribute__(( weak )) char * abi::__cxa_demangle( const char * mangled_name, char *, size_t *, int * ) {
-	return const_cast<char *>(mangled_name);
-}
 
 static void backtrace( int start ) {
 	enum {
@@ -518,17 +514,8 @@ enum {
 	__DEFAULT_HEAP_UNFREED__ = 0
 }; // enum
 
-static void heapManagerCtor();
-static void heapManagerDtor();
-
 
 namespace {												// hide static members
-	// Used solely to detect when a thread terminates. Thread creation is handled by a fastpath dynamic check.
-	struct ThreadManager {
-		volatile bool trigger;							// used to trigger allocation of thread-local object, otherwise unused
-		~ThreadManager() { heapManagerDtor(); }			// called automagically when thread terminates
-	}; // ThreadManager
-
 	struct HeapMaster {
 		SpinLock_t extLock;								// protects allocation-buffer extension
 		SpinLock_t mgrLock;								// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
@@ -575,8 +562,8 @@ static HeapMaster heapMaster;							// program global
 
 // Thread-local storage is allocated lazily when the storage is accessed.
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
-static thread_local ThreadManager threadManager CALIGN TLSMODEL;
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
+static pthread_key_t pthread_key CALIGN;				// used by pthread_key_create
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
@@ -585,7 +572,6 @@ extern "C" void noMemory( void );						// forward, called by "builtin_new" when 
 // Replaced by C++ version when compiled with C++.
 typedef void (*new_handler)();
 __attribute__(( weak )) new_handler set_new_handler( new_handler ) { return nullptr; };
-//extern "C" __attribute__(( weak )) int __cxa_thread_atexit( void (*)(), void *, void * ) { write( 2, "X", 1 ); return 0; }
 
 
 void HeapMaster::heapMasterCtor() {
@@ -723,29 +709,7 @@ Heap * HeapMaster::getHeap() {
 } // HeapMaster::getHeap
 
 
-static void heapManagerCtor() {
-	if ( UNLIKELY( ! heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
-
-	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
-
-	// get storage for heap manager
-
-	heapManager = HeapMaster::getHeap();
-
-	#ifdef __STATISTICS__
-	HeapStatisticsCtor( heapManager->stats );			// heap local
-	heapMaster.threads_started += 1;
-	#endif // __STATISTICS__
-
-	spin_release( &heapMaster.mgrLock );
-
-	// Trigger thread_local storage implicit allocation, which causes a dynamic allocation but not a recursive entry
-	// because heapManager is set above.
-	threadManager.trigger = true;						// any value works
-} // heapManagerCtor
-
-
-static void heapManagerDtor() {
+static void heapManagerDtor( void * ) {
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
 	// push heap onto stack of free heaps for reusability
@@ -762,17 +726,34 @@ static void heapManagerDtor() {
 	heapMaster.threads_exited += 1;
 	#endif // __STATISTICS__
 
-	// SKULLDUGGERY: The thread heap ends BEFORE the last free(s) occurs from the thread-local storage allocations for
-	// the thread. This final allocation must be handled in doFree for this thread and its terminated heap. However,
-	// this heap has just been put on the heap freelist, and hence there is a race returning the thread-local storage
-	// and a new thread using this heap. The current thread detects it is executing its last free in doFree via
-	// heapManager being null. The trick is for this thread to place the last free onto the current heap's remote-list as
-	// the free-storage header points are this heap. Now, even if other threads are pushing to the remote list, it is safe
-	// because of the locking.
-
 	heapManager = nullptr;								// => heap not in use
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
+
+
+static void heapManagerCtor( void ) {
+	if ( UNLIKELY( ! heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
+
+	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
+
+	// get storage for heap manager
+
+	heapManager = HeapMaster::getHeap();
+
+	#ifdef __STATISTICS__
+	HeapStatisticsCtor( heapManager->stats );			// heap local
+	heapMaster.threads_started += 1;
+	#endif // __STATISTICS__
+
+	if ( pthread_key_create( &pthread_key, heapManagerDtor ) ) {
+		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", errno );
+	} // if
+	if ( pthread_setspecific( pthread_key, (void *)1 ) ) { // key must be non-zero to trigger destructor
+		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", errno );
+	} // if
+
+	spin_release( &heapMaster.mgrLock );
+} // heapManagerCtor
 
 
 //####################### Memory Allocation Routines Helpers ####################
@@ -1080,7 +1061,6 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
 		size_t increase = Ceiling( size > heapMaster.sbrkExtend ? size : heapMaster.sbrkExtend, __ALIGN__ );
 		if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) {	// failed, no memory ?
-			spin_release( &heapMaster.extLock );
 			abort( NO_MEMORY_MSG, size );				// give up
 		} // if
 		rem = heapMaster.sbrkRemaining + increase - size;
@@ -1379,7 +1359,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			while ( ! Casv( freeHead->remoteList, &header->kind.real.next, (Heap::Storage *)header ) ) Pause();
 			#endif // __REMOTESPIN__
 
-			if ( UNLIKELY( heap == nullptr ) ) {
+			if ( UNLIKELY( heap == nullptr ) ) {		// heap maybe unused in the heap freelist
 				// Use master heap counters as heap is reused by this point.
 				#ifdef __STATISTICS__
 				Fai( heapMaster.stats.remote_pushes, 1 );
