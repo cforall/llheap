@@ -499,13 +499,10 @@ int main( int argc, char *argv[] ) {
 
 	pthread_t thread[Threads];							// thread[0] unused
 
-	cpu_set_t mask;
-	affinity( 0, mask );
-	if ( pthread_setaffinity_np( pthread_self(), sizeof(cpu_set_t), &mask ) ) abort();
+	affinity( pthread_self(), 0 );
 	for ( int tid = 1; tid < Threads; tid += 1 ) {		// N - 1 thread
 		if ( pthread_create( &thread[tid], NULL, worker, NULL) < 0 ) abort();
-		affinity( tid, mask );
-		if ( pthread_setaffinity_np( thread[tid], sizeof(cpu_set_t), &mask ) ) abort();
+		affinity( thread[tid], tid );
 	} // for
 	
 	worker( nullptr );									// initialize thread runs one test
