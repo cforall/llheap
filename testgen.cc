@@ -48,7 +48,7 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 static pthread_barrier_t barrier;
 
-enum : uint64_t { TIMES = 5'000'000'00, TIMES2 = TIMES / 5'000 };
+enum : uint64_t { TIMES = 5'000'000'000, TIMES2 = TIMES / 5'000 };
 #define FIXED 42
 #define FIXED2 1'048'576
 #define GROUP1 100
@@ -106,22 +106,22 @@ static void * worker( void * arg ) {
 	uintptr_t tid = (uintptr_t)arg;						// thread id
 	timespec start;
 	double etime;
-	int * ip;
-	int * ips1[GROUP1], * ips2[GROUP2];
+	char * cp;
+	char * cps1[GROUP1], * cps2[GROUP2];
 	unsigned int exp = 0;
+	struct rusage rnow;
+	struct timeval tbegin, tnow;						// there is no real time in getrusage
 
 	// sbrk storage
 
 #if 1
-	struct rusage rnow;
-	struct timeval tbegin, tnow;						// there is no real time in getrusage
 	gettimeofday( &tbegin, 0 );
 
 	// malloc/free 0/null pointer
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES; i += 1 ) {
-		void * vp = pass( malloc( 0 ) );				// warning: insufficient size '0' for type 'int'
-		free( vp );
+		char * cp = (char *)pass( malloc( 0 ) );
+		free( cp );
 	} // for
 	etime = dur( currTime(), start );
 	eresults[exp++][tid] = etime;
@@ -129,10 +129,10 @@ static void * worker( void * arg ) {
 	pthread_barrier_wait( &barrier );
 
 	// free null pointer (CANNOT BE FIRST TEST BECAUSE HEAP IS NOT INITIALIZED => HIGH COST)
-	ip = nullptr;
+	cp = nullptr;
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES; i += 1 ) {
-		free( pass( ip ) );
+		free( pass( cp ) );
 	} // for
 	etime = dur( currTime(), start );
 	eresults[exp++][tid] = etime;
@@ -142,8 +142,9 @@ static void * worker( void * arg ) {
 	// alternate malloc/free FIXED bytes
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES; i += 1 ) {
-		ip = (int *)pass( malloc( FIXED ) );
-		free( ip );
+		cp = (char *)pass( malloc( FIXED ) );
+		cp[0] = cp[FIXED - 1] = 'a';					// touch ends
+		free( cp );
 	} // for
 	etime = dur( currTime(), start );
 	eresults[exp++][tid] = etime;
@@ -155,10 +156,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( FIXED ) );
+			cps1[g] = (char *)pass( malloc( FIXED ) );
+			cps1[g][0] = cps1[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -171,10 +173,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( FIXED ) );
+			cps2[g] = (char *)pass( malloc( FIXED ) );
+			cps2[g][0] = cps2[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -187,10 +190,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( FIXED ) );
+			cps1[g] = (char *)pass( malloc( FIXED ) );
+			cps1[g][0] = cps1[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -203,10 +207,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( FIXED ) );
+			cps2[g] = (char *)pass( malloc( FIXED ) );
+			cps2[g][0] = cps2[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -219,8 +224,9 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ip = (int *)pass( malloc( g ) );
-			free( ip );
+			cp = (char *)pass( malloc( g ) );
+			if ( g ) cp[0] = cp[g - 1] = 'a';			// touch ends
+			free( cp );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -233,10 +239,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( g ) );
+			cps1[g] = (char *)pass( malloc( g ) );
+			if ( g ) cps1[g][0] = cps1[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -249,10 +256,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( g ) );
+			cps2[g] = (char *)pass( malloc( g ) );
+			if ( g ) cps2[g][0] = cps2[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -265,10 +273,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( g ) );
+			cps1[g] = (char *)pass( malloc( g ) );
+			if ( g ) cps1[g][0] = cps1[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -281,10 +290,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( g ) );
+			cps2[g] = (char *)pass( malloc( g ) );
+			if ( g )cps2[g][0] = cps2[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -298,8 +308,9 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ip = (int *)pass( malloc( rgroup1[g] ) );
-			free( ip );
+			cp = (char *)pass( malloc( rgroup1[g] ) );
+			if ( rgroup1[g] ) cp[0] = cp[rgroup1[g] - 1] = 'a';	// touch ends
+			free( cp );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -312,10 +323,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( rgroup1[g] ) );
+			cps1[g] = (char *)pass( malloc( rgroup1[g] ) );
+			if ( rgroup1[g] ) cps1[g][0] = cps1[g][rgroup1[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -328,10 +340,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( rgroup2[g] ) );
+			cps2[g] = (char *)pass( malloc( rgroup2[g] ) );
+			if ( rgroup1[g] ) cps2[g][0] = cps2[g][rgroup2[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -344,10 +357,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( rgroup1[g] ) );
+			cps1[g] = (char *)pass( malloc( rgroup1[g] ) );
+			if ( rgroup1[g] ) cps1[g][0] = cps1[g][rgroup1[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -360,10 +374,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( rgroup2[g] ) );
+			cps2[g] = (char *)pass( malloc( rgroup2[g] ) );
+			if ( rgroup1[g] ) cps2[g][0] = cps2[g][rgroup2[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -371,7 +386,6 @@ static void * worker( void * arg ) {
 	DOTS();
 	pthread_barrier_wait( &barrier );
 	#endif // RANDOM
-#endif // 0
 
 	gettimeofday( &tnow, 0 );
 	getrusage( RUSAGE_SELF, &rnow );
@@ -380,6 +394,7 @@ static void * worker( void * arg ) {
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
 	} // if
+#endif // 0
 
 #if 1
 	// mmap storage
@@ -389,8 +404,9 @@ static void * worker( void * arg ) {
 	// alternate malloc/free FIXED2 bytes
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2; i += 1 ) {
-		ip = (int *)pass( malloc( FIXED2 ) );
-		free( ip );
+		cp = (char *)pass( malloc( FIXED2 ) );
+		cp[0] = cp[FIXED2 - 1] = 'a';					// touch ends
+		free( cp );
 	} // for
 	etime = dur( currTime(), start );
 	eresults[exp++][tid] = etime;
@@ -402,10 +418,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( FIXED2 ) );
+			cps1[g] = (char *)pass( malloc( FIXED2 ) );
+			cps1[g][0] = cps1[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -418,10 +435,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( FIXED2 ) );
+			cps2[g] = (char *)pass( malloc( FIXED2 ) );
+			cps2[g][0] = cps2[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -434,10 +452,11 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
-			ips1[g] = (int *)pass( malloc( FIXED2 ) );
+			cps1[g] = (char *)pass( malloc( FIXED2 ) );
+			cps1[g][0] = cps1[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
-			free( ips1[g] );
+			free( cps1[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
@@ -450,18 +469,17 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
-			ips2[g] = (int *)pass( malloc( FIXED2 ) );
+			cps2[g] = (char *)pass( malloc( FIXED2 ) );
+			cps2[g][0] = cps2[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
-			free( ips2[g] );
+			free( cps2[g] );
 		} // for
 	} // for
 	etime = dur( currTime(), start );
 	eresults[exp++][tid] = etime;
 	DOTS();
 	pthread_barrier_wait( &barrier );
-
-	assert( exp == EXPERIMENTS );
 
 	gettimeofday( &tnow, 0 );
 	getrusage( RUSAGE_SELF, &rnow );
@@ -470,7 +488,6 @@ static void * worker( void * arg ) {
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
 	} // if
-
 #endif // 0
 	return nullptr;
 } // worker
