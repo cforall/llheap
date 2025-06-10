@@ -67,17 +67,17 @@ void * worker( void * arg ) {
 		} // for
 
 		Aligned obatch = batch;
-		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // atomic exchange
+		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // Fas => atomic exchange
 			if ( stop ) goto fini;
 			a = cycleUp( a, Threads );					// try another batch
 		} // while
 
 		for ( size_t i = 0; i < Batch; i += 1 ) {		// deallocations
-			if ( *(int *)batch.col[i] != 42 ) abort();	// read storage
+			if ( *(int *)batch.col[i] != 42 ) abort();	// read storage check
 			free( batch.col[i] );						// remote free
 		} // for
 		cnt += Batch;									// sum allocations/frees
-		a = cycleUp( a, Threads );						// modulo N increment
+		a = cycleUp( a, Threads );						// try another batchmodulo N increment
 	} // for
   fini: ;
 	times[id] = cnt;									// return throughput
