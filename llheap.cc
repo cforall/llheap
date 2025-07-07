@@ -1868,19 +1868,6 @@ extern "C" {
 	} // malloc_size
 
 
-	// Returns the number of usable bytes in the block pointed to by ptr, a pointer to a block of memory allocated by
-	// malloc or a related function.
-	size_t malloc_usable_size( void * addr ) {
-	  if ( UNLIKELY( addr == nullptr ) ) return 0;		// null allocation has zero size
-		Heap::Storage::Header * header;
-		Heap::FreeHeader * freeHead;
-		size_t bsize, alignment;
-
-		headers( "malloc_usable_size", addr, header, freeHead, bsize, alignment );
-		return DataStorage( bsize, addr, header );		// data storage in bucket
-	} // malloc_usable_size
-
-
 	// Returns the alignment of an allocation.
 	size_t malloc_alignment( void * addr ) {
 	  if ( UNLIKELY( addr == nullptr ) ) return __ALIGN__; // minimum alignment
@@ -1912,6 +1899,19 @@ extern "C" {
 		} // if
 		return heapManager == (ClearStickyBits( header->kind.real.home ))->homeManager;
 	} // malloc_remote
+
+
+	// Returns the number of usable bytes in the block pointed to by ptr, a pointer to a block of memory allocated by
+	// malloc or a related function.
+	size_t malloc_usable_size( void * addr ) {
+	  if ( UNLIKELY( addr == nullptr ) ) return 0;		// null allocation has zero size
+		Heap::Storage::Header * header;
+		Heap::FreeHeader * freeHead;
+		size_t bsize, alignment;
+
+		headers( "malloc_usable_size", addr, header, freeHead, bsize, alignment );
+		return DataStorage( bsize, addr, header );		// data storage in bucket
+	} // malloc_usable_size
 
 
 	// Prints (on default standard error) statistics about memory allocated by malloc and related functions.
