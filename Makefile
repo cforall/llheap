@@ -3,7 +3,7 @@ ifeq ($(shell hostname),plg2)
 CXX := g++-11
 endif
 
-CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__ -D__NONNULL_0_ALLOC__
+CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__
 ifeq ($(shell uname -p),aarch64)		# ARM processor ?
 #        CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
         CXXFLAGS += -march=armv8.2-a+lse	# use ARM LSE instructions for atomics

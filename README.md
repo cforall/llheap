@@ -20,7 +20,6 @@ The Makefile has building options.
 * `__FASTLOOKUP__` (default) use O(1) table lookup from allocation size to bucket size for small allocations.
 * `__OWNERSHIP__` (default) return freed memory to owner thread.
 * `__RETURNSPIN__` (not default) use spinlock for mutual exclusion versus lockfree stack.
-* `__NULL_0_ALLOC__` (default) return an allocation addresses for a 0-sized allocation rather than a null pointer.
 
 # Memory Allocator Design
 
