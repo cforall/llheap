@@ -22,9 +22,9 @@
 	statement ;	\
 	_Pragma ( "GCC diagnostic pop" )
 
-#define __FASTLOOKUP__	// use O(1) table lookup from allocation size to bucket size for small allocations
-#define __OWNERSHIP__	// return freed memory to owner thread
-//#define __REMOTESPIN__	// toggle spinlock / lockfree queue
+#define __FASTLOOKUP__									// use O(1) table lookup from allocation size to bucket size for small allocations
+#define __OWNERSHIP__									// return freed memory to owner thread
+//#define __REMOTESPIN__									// toggle spinlock / lockfree queue
 #if ! defined( __OWNERSHIP__ ) && defined( __REMOTESPIN__ )
 #warning "REMOTESPIN is ignored without OWNERSHIP; suggest commenting out REMOTESPIN"
 #endif // ! __OWNERSHIP__ && __REMOTESPIN__
@@ -133,7 +133,7 @@ static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, 
 	size_t l = 0, m, h = dimension;
 	while ( l < h ) {
 		m = (l + h) / 2;
-		if ( (unsigned int &)(vals[m]) < key ) {		// cast away const
+		if ( vals[m] < key ) {
 			l = m + 1;
 		} else {
 			h = m;
@@ -1933,7 +1933,7 @@ extern "C" {
 		#endif // __STATISTICS__
 	} // malloc_stats_clear
 
-	// Set file descriptor where malloc_stats malloc_info writes statistics.
+	// Set file descriptor where malloc_stats/malloc_info writes statistics.
 	int malloc_stats_fd( int fd __attribute__(( unused )) ) {
 		#ifdef __STATISTICS__
 		int temp = heapMaster.stats_fd;
