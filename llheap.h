@@ -27,8 +27,8 @@ extern "C" {
 
 	// Statistics
 	int malloc_stats_fd( int fd );						// file descriptor global malloc_stats() writes (default stdout)
-	void malloc_stats_clear();							// clear global heap statistics
-	void heap_stats();									// print thread per heap statistics
+	void malloc_stats_clear( void );					// clear global heap statistics
+	void heap_stats( void );							// print thread per heap statistics
 
 	// If unsupport, create them, as supported in mallopt.
 	#ifndef M_MMAP_THRESHOLD
