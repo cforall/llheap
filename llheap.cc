@@ -149,12 +149,12 @@ static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, 
 #define Clr( lock ) __atomic_clear( (&(lock)), __ATOMIC_RELEASE )
 #define Fas( change, assn ) __atomic_exchange_n( (&(change)), (assn), __ATOMIC_SEQ_CST )
 #define Cas( change, comp, assn ) ({decltype(comp) __temp = (comp); __atomic_compare_exchange_n( (&(change)), (&(__temp)), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ); })
-#define Casv( change, comp, assn ) __atomic_compare_exchange_n( (&(change)), (comp), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST )
+#define Casv( change, comp, assn ) __atomic_compare_exchange_n( (&(change)), (&(comp)), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST )
 
 // pause to prevent excess processor bus usage
 #if defined( __i386 ) || defined( __x86_64 )
 	#define Pause() __asm__ __volatile__ ( "pause" : : : )
-#elif defined(__ARM_ARCH)
+#elif defined( __ARM_ARCH )
 	#define Pause() __asm__ __volatile__ ( "YIELD" : : : )
 #else
 	#error unsupported architecture
@@ -846,24 +846,24 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 static int printStats( HeapStatistics & stats, const char * title = "" ) { // see malloc_stats
 	char helpText[sizeof(prtFmt) + 1024];				// space for message and values
 	int len = snprintf( helpText, sizeof(helpText), prtFmt,	getpid(), title,
-			stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
-			stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
-			stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
-			stats.memalign_calls, stats.memalign_0_calls, stats.memalign_storage_request, stats.memalign_storage_alloc,
-			stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_storage_request, stats.amemalign_storage_alloc,
-			stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
-			stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
-			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
-			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
-			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
-			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
-			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
-			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
-			heapMaster.nremainder, heapMaster.remainder,
-			heapMaster.threads_started, heapMaster.threads_exited,
-			heapMaster.new_heap, heapMaster.reused_heap
-		);
+		stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
+		stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
+		stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
+		stats.memalign_calls, stats.memalign_0_calls, stats.memalign_storage_request, stats.memalign_storage_alloc,
+		stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_storage_request, stats.amemalign_storage_alloc,
+		stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
+		stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
+		stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
+		stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
+		stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
+		stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
+		heapMaster.sbrk_calls, heapMaster.sbrk_storage,
+		stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
+		stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
+		heapMaster.nremainder, heapMaster.remainder,
+		heapMaster.threads_started, heapMaster.threads_exited,
+		heapMaster.new_heap, heapMaster.reused_heap
+	);
 	return write( heapMaster.stats_fd, helpText, len );
 } // printStats
 
@@ -894,24 +894,24 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 static int printStatsXML( HeapStatistics & stats, FILE * stream ) { // see malloc_info
 	char helpText[sizeof(prtFmtXML) + 1024];			// space for message and values
 	int len = snprintf( helpText, sizeof(helpText), prtFmtXML,
-			stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
-			stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
-			stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
-			stats.memalign_calls, stats.memalign_0_calls, stats.memalign_storage_request, stats.memalign_storage_alloc,
-			stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_storage_request, stats.amemalign_storage_alloc,
-			stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
-			stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
-			stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
-			stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
-			stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-			stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
-			heapMaster.sbrk_calls, heapMaster.sbrk_storage,
-			stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
-			stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
-			heapMaster.nremainder, heapMaster.remainder,
-			heapMaster.threads_started, heapMaster.threads_exited,
-			heapMaster.new_heap, heapMaster.reused_heap
-		);
+		stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
+		stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
+		stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
+		stats.memalign_calls, stats.memalign_0_calls, stats.memalign_storage_request, stats.memalign_storage_alloc,
+		stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_storage_request, stats.amemalign_storage_alloc,
+		stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
+		stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
+		stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
+		stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
+		stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
+		stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
+		heapMaster.sbrk_calls, heapMaster.sbrk_storage,
+		stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
+		stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
+		heapMaster.nremainder, heapMaster.remainder,
+		heapMaster.threads_started, heapMaster.threads_exited,
+		heapMaster.new_heap, heapMaster.reused_heap
+	);
 	return write( fileno( stream ), helpText, len );
 } // printStatsXML
 
@@ -1260,7 +1260,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		block->header.kind.real.home = freeHead;		// pointer back to free list of apropriate size
 	} else {											// large size => mmap
 		#ifdef __DEBUG__
-		/// Recheck because of minimum allocation size (page size).
+		// Recheck because of minimum allocation size (page size).
 		if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) {
 			errno = ENOMEM;
 			return nullptr;
@@ -1356,7 +1356,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			#else										// lock free
 			header->kind.real.next = freeHead->remoteList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->remoteList on failure
-			while ( ! Casv( freeHead->remoteList, &header->kind.real.next, (Heap::Storage *)header ) ) Pause();
+			while ( ! Casv( freeHead->remoteList, header->kind.real.next, (Heap::Storage *)header ) ) Pause();
 			#endif // __REMOTESPIN__
 
 			if ( UNLIKELY( heap == nullptr ) ) {		// heap maybe unused in the heap freelist
