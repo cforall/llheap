@@ -121,6 +121,7 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES; i += 1 ) {
 		char * cp = (char *)pass( malloc( 0 ) );
+		assert( cp );
 		free( cp );
 	} // for
 	etime = dur( currTime(), start );
@@ -143,6 +144,7 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES; i += 1 ) {
 		cp = (char *)pass( malloc( FIXED ) );
+		assert( cp );
 		cp[0] = cp[FIXED - 1] = 'a';					// touch ends
 		free( cp );
 	} // for
@@ -157,6 +159,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( FIXED ) );
+			assert( cps1[g] );
 			cps1[g][0] = cps1[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
@@ -174,6 +177,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( FIXED ) );
+			assert( cps2[g] );
 			cps2[g][0] = cps2[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
@@ -191,6 +195,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( FIXED ) );
+			assert( cps1[g] );
 			cps1[g][0] = cps1[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
@@ -208,6 +213,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( FIXED ) );
+			assert( cps2[g] );
 			cps2[g][0] = cps2[g][FIXED - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
@@ -225,6 +231,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cp = (char *)pass( malloc( g ) );
+			assert( cp );
 			if ( g ) cp[0] = cp[g - 1] = 'a';			// touch ends
 			free( cp );
 		} // for
@@ -240,6 +247,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( g ) );
+			assert( cps1[g] );
 			if ( g ) cps1[g][0] = cps1[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
@@ -257,6 +265,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( g ) );
+			assert( cps2[g] );
 			if ( g ) cps2[g][0] = cps2[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
@@ -274,6 +283,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( g ) );
+			assert( cps1[g] );
 			if ( g ) cps1[g][0] = cps1[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
@@ -291,6 +301,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( g ) );
+			assert( cps2[g] );
 			if ( g )cps2[g][0] = cps2[g][g - 1] = 'a';	// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
@@ -309,6 +320,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cp = (char *)pass( malloc( rgroup1[g] ) );
+			assert( cp );
 			if ( rgroup1[g] ) cp[0] = cp[rgroup1[g] - 1] = 'a';	// touch ends
 			free( cp );
 		} // for
@@ -324,6 +336,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( rgroup1[g] ) );
+			assert( cps1[g] );
 			if ( rgroup1[g] ) cps1[g][0] = cps1[g][rgroup1[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
@@ -341,6 +354,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( rgroup2[g] ) );
+			assert( cps2[g] );
 			if ( rgroup1[g] ) cps2[g][0] = cps2[g][rgroup2[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
@@ -358,6 +372,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( rgroup1[g] ) );
+			assert( cps1[g] );
 			if ( rgroup1[g] ) cps1[g][0] = cps1[g][rgroup1[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
@@ -375,6 +390,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( rgroup2[g] ) );
+			assert( cps2[g] );
 			if ( rgroup1[g] ) cps2[g][0] = cps2[g][rgroup2[g] - 1] = 'a'; // touch ends
 		} // for
 		for ( uint64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
@@ -405,6 +421,7 @@ static void * worker( void * arg ) {
 	start = currTime();
 	for ( uint64_t i = 0; i < TIMES2; i += 1 ) {
 		cp = (char *)pass( malloc( FIXED2 ) );
+		assert( cp );
 		cp[0] = cp[FIXED2 - 1] = 'a';					// touch ends
 		free( cp );
 	} // for
@@ -419,6 +436,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( FIXED2 ) );
+			assert( cps1[g] );
 			cps1[g][0] = cps1[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
@@ -436,6 +454,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( FIXED2 ) );
+			assert( cps2[g] );
 			cps2[g][0] = cps2[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
@@ -453,6 +472,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES2 / GROUP1; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP1; g += 1 ) {
 			cps1[g] = (char *)pass( malloc( FIXED2 ) );
+			assert( cps1[g] );
 			cps1[g][0] = cps1[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP1 - 1; g >= 0; g -= 1 ) {
@@ -470,6 +490,7 @@ static void * worker( void * arg ) {
 	for ( uint64_t i = 0; i < TIMES2 / GROUP2; i += 1 ) {
 		for ( uint64_t g = 0; g < GROUP2; g += 1 ) {
 			cps2[g] = (char *)pass( malloc( FIXED2 ) );
+			assert( cps2[g] );
 			cps2[g][0] = cps2[g][FIXED2 - 1] = 'a';		// touch ends
 		} // for
 		for ( int64_t g = GROUP2 - 1; g >= 0; g -= 1 ) {
