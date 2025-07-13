@@ -1,6 +1,5 @@
 #include "llheap.h"
 
-#include <new>											// set_new_handler
 #include <cstdlib>										// abort
 #include <cstring>										// strlen, memset, memcpy
 #include <climits>										// ULONG_MAX
@@ -244,6 +243,7 @@ static void backtrace( int start ) {
 		} // if
 		debugprt( helpText, len );
 	} // for
+
 	free( messages );
 } // backtrace
 #endif // __DEBUG__
@@ -515,46 +515,42 @@ enum {
 }; // enum
 
 
-namespace {												// hide static members
-	struct HeapMaster {
-		SpinLock_t extLock;								// protects allocation-buffer extension
-		SpinLock_t mgrLock;								// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
+struct HeapMaster {
+	SpinLock_t extLock;									// protects allocation-buffer extension
+	SpinLock_t mgrLock;									// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
 
-		void * sbrkStart;								// start of sbrk storage
-		void * sbrkEnd;									// end of sbrk area (logical end of heap)
-		size_t sbrkRemaining;							// amount of free storage at end of sbrk area
-		size_t sbrkExtend;								// sbrk extend amount
-		size_t pageSize;								// architecture pagesize
-		size_t mmapStart;								// cross over point for mmap
-		size_t maxBucketsUsed;							// maximum number of buckets in use
+	void * sbrkStart;									// start of sbrk storage
+	void * sbrkEnd;										// end of sbrk area (logical end of heap)
+	size_t sbrkRemaining;								// amount of free storage at end of sbrk area
+	size_t sbrkExtend;									// sbrk extend amount
+	size_t pageSize;									// architecture pagesize
+	size_t mmapStart;									// cross over point for mmap
+	size_t maxBucketsUsed;								// maximum number of buckets in use
 
-		#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
-		Heap * heapManagersList;						// heap-stack head
-		#endif // __STATISTICS__ || __DEBUG__
-		Heap * freeHeapManagersList;					// free-stack head
+	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
+	Heap * heapManagersList;							// heap-stack head
+	#endif // __STATISTICS__ || __DEBUG__
+	Heap * freeHeapManagersList;						// free-stack head
 
-		// Heap superblocks are not linked; heaps in superblocks are linked via intrusive links.
-		Heap * heapManagersStorage;						// next heap to use in heap superblock
-		Heap * heapManagersStorageEnd;					// logical heap outside of superblock's end
+	// Heap superblocks are not linked; heaps in superblocks are linked via intrusive links.
+	Heap * heapManagersStorage;							// next heap to use in heap superblock
+	Heap * heapManagersStorageEnd;						// logical heap outside of superblock's end
 
-		#ifdef __DEBUG__
-		ptrdiff_t allocUnfreed;							// running total of allocations minus frees; can be negative
-		#endif // __DEBUG__
+	#ifdef __DEBUG__
+	ptrdiff_t allocUnfreed;								// running total of allocations minus frees; can be negative
+	#endif // __DEBUG__
 
-		#ifdef __STATISTICS__
-		HeapStatistics stats;							// global stats for thread-local heaps to add there counters when exiting
-		unsigned long long int nremainder, remainder;	// counts mostly unusable storage at the end of a thread's reserve block
-		unsigned long long int threads_started, threads_exited; // counts threads that have started and exited
-		unsigned long long int reused_heap, new_heap;	// counts reusability of heaps
-		unsigned long long int sbrk_calls;
-		unsigned long long int sbrk_storage;
-		int stats_fd;
-		#endif // __STATISTICS__
+	#ifdef __STATISTICS__
+	HeapStatistics stats;								// global stats for thread-local heaps to add there counters when exiting
+	unsigned long long int nremainder, remainder;		// counts mostly unusable storage at the end of a thread's reserve block
+	unsigned long long int threads_started, threads_exited; // counts threads that have started and exited
+	unsigned long long int reused_heap, new_heap;		// counts reusability of heaps
+	unsigned long long int sbrk_calls;
+	unsigned long long int sbrk_storage;
+	int stats_fd;
+	#endif // __STATISTICS__
+}; // HeapMaster
 
-		static void heapMasterCtor();
-		static Heap * getHeap();
-	}; // HeapMaster
-} // namespace
 
 static volatile bool heapMasterBootFlag = false;		// trigger for first heap
 static HeapMaster heapMaster;							// program global
@@ -567,14 +563,12 @@ static pthread_key_t pthread_key CALIGN;				// used by pthread_key_create
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
 
 
-// Declare helper functions for HeapMaster.
-extern "C" void noMemory( void );						// forward, called by "builtin_new" when malloc returns 0
-// Replaced by C++ version when compiled with C++.
-typedef void (*new_handler)();
-__attribute__(( weak )) new_handler set_new_handler( new_handler ) { return nullptr; };
+// Replaced by -pthread library for concurrent program; otherwise do nothing for single thread
+extern "C" __attribute__(( weak )) int pthread_key_create( pthread_key_t *, void (*)(void *) ) { return 0; }
+extern "C" __attribute__(( weak )) int pthread_setspecific( pthread_key_t, const void * ) { return 0; }
 
 
-void HeapMaster::heapMasterCtor() {
+static void heapMasterCtor() {
 	// Singleton pattern to initialize heap master
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
@@ -628,15 +622,13 @@ void HeapMaster::heapMasterCtor() {
 	} // for
 	#endif // __FASTLOOKUP__
 
-	set_new_handler( noMemory );						// do not throw exception as the default
-
 	heapMasterBootFlag = true;
 } // HeapMaster::heapMasterCtor
 
 
 #define NO_MEMORY_MSG "**** Error **** insufficient heap memory available to allocate %zd new bytes."
 
-Heap * HeapMaster::getHeap() {
+static Heap * getHeap() {
 	Heap * heap;
 	if ( heapMaster.freeHeapManagersList ) {			// free heap for reused ?
 		// pop heap from stack of free heaps for reusability
@@ -709,7 +701,7 @@ Heap * HeapMaster::getHeap() {
 } // HeapMaster::getHeap
 
 
-static void heapManagerDtor( void * ) {
+static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
 	// push heap onto stack of free heaps for reusability
@@ -732,13 +724,13 @@ static void heapManagerDtor( void * ) {
 
 
 static void heapManagerCtor( void ) {
-	if ( UNLIKELY( ! heapMasterBootFlag ) ) HeapMaster::heapMasterCtor();
+	if ( UNLIKELY( ! heapMasterBootFlag ) ) heapMasterCtor();
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
 	// get storage for heap manager
 
-	heapManager = HeapMaster::getHeap();
+	heapManager = getHeap();
 
 	#ifdef __STATISTICS__
 	HeapStatisticsCtor( heapManager->stats );			// heap local
@@ -1009,8 +1001,7 @@ static inline __attribute__((always_inline)) void fakeHeader( Heap::Storage::Hea
 } // fakeHeader
 
 
-static inline __attribute__((always_inline))
-bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::Storage::Header *& header,
+static inline __attribute__((always_inline)) bool headers( const char name[] __attribute__(( unused )), void * addr, Heap::Storage::Header *& header,
 					 Heap::FreeHeader *& freeHead, size_t & size, size_t & alignment ) {
 	header = HeaderAddr( addr );
 
@@ -1060,9 +1051,8 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
 		size_t increase = Ceiling( size > heapMaster.sbrkExtend ? size : heapMaster.sbrkExtend, __ALIGN__ );
-		if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) {	// failed, no memory ?
-			abort( NO_MEMORY_MSG, size );				// give up
-		} // if
+		// if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) abort( NO_MEMORY_MSG, size );	// failed, no memory
+		if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) { spin_release( &heapMaster.extLock ); return nullptr; } // failed, no memory, errnor == ENOMEM
 		rem = heapMaster.sbrkRemaining + increase - size;
 
 		#ifdef __STATISTICS__
@@ -1071,12 +1061,12 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 		#endif // __STATISTICS__
 	} // if
 
-	Heap::Storage * block = (Heap::Storage *)heapMaster.sbrkEnd;
+	void * newblock = (Heap::Storage *)heapMaster.sbrkEnd;
 	heapMaster.sbrkRemaining = rem;
 	heapMaster.sbrkEnd = (char *)heapMaster.sbrkEnd + size;
 
 	spin_release( &heapMaster.extLock );
-	return block;
+	return newblock;
 } // master_extend
 
 
@@ -1084,6 +1074,7 @@ static void * manager_extend( size_t size ) {
 	// If the size requested is bigger than the current remaining reserve, so increase the reserve.
 	size_t increase = Ceiling( size > ( heapMaster.sbrkExtend / 16 ) ? size : ( heapMaster.sbrkExtend / 16 ), __ALIGN__ );
 	void * newblock = master_extend( increase );
+	if ( UNLIKELY( newblock == nullptr ) ) return nullptr;
 
 	// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
 	// For sequential programs, this check is always true.
@@ -1245,6 +1236,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			} else {
 				// Get storage from a *new* free block using bump alocation.
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
+				if ( UNLIKELY( block == nullptr ) ) return nullptr;
 
 				#ifdef __DEBUG__
 				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
@@ -1278,7 +1270,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 		block = (Heap::Storage *)::mmap( 0, tsize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
-			if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, tsize ); // no memory
+			// if ( errno == ENOMEM ) abort( NO_MEMORY_MSG, tsize ); // no memory
+			if ( errno == ENOMEM ) { return nullptr; }	// no memory
 			// Do not call strerror( errno ) as it may call malloc.
 			abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
 				   size, heapMaster.mmapStart, errno );
