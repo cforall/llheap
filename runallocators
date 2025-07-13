@@ -7,7 +7,7 @@ echo -n "======================\n${hostname}\n======================"
 allocsdir="${HOME}/software/allocators"
 allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
 
-cflag="-g -O3 -Wall -Wextra  -D${hostname}" # -DLINEARAFF
+cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
     atomicinst=-march=armv8.2-a+lse	# use ARM LSE instructions for atomics
@@ -53,6 +53,7 @@ fi
 #program="ownership"
 #program="larson"
 #program="cache"
+#program="bad_alloc"
 program="testgen"
 
 checksticky() {
@@ -73,6 +74,12 @@ ownership() {
     for CPU in 2 4 8 16 32 64 128 ; do
 	eval ${time} ${strace} ${perf} ${taskset} ./${exec} 30 ${CPU} 100
     done
+}
+
+bad_alloc() {
+    if [ "${allocator}" = "libhoard.so" ] ; then return ; fi
+    ulimit -d 1000000
+    eval ${time} ${strace} ${perf} ${taskset} ./${exec}
 }
 
 echo -n "\n\n\"glibc\"\n"
