@@ -568,7 +568,7 @@ extern "C" __attribute__(( weak )) int pthread_key_create( pthread_key_t *, void
 extern "C" __attribute__(( weak )) int pthread_setspecific( pthread_key_t, const void * ) { return 0; }
 
 
-static void heapMasterCtor() {
+static void heapMasterCtor( void ) {
 	// Singleton pattern to initialize heap master
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
@@ -628,7 +628,7 @@ static void heapMasterCtor() {
 
 #define NO_MEMORY_MSG "**** Error **** insufficient heap memory available to allocate %zd new bytes."
 
-static Heap * getHeap() {
+static Heap * getHeap( void ) {
 	Heap * heap;
 	if ( heapMaster.freeHeapManagersList ) {			// free heap for reused ?
 		// pop heap from stack of free heaps for reusability
@@ -718,7 +718,6 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	heapMaster.threads_exited += 1;
 	#endif // __STATISTICS__
 
-	heapManager = nullptr;								// => heap not in use
 	spin_release( &heapMaster.mgrLock );
 } // heapManagerDtor
 
@@ -920,7 +919,7 @@ static HeapStatistics & collectStats( HeapStatistics & stats ) {
 	return stats;
 } // collectStats
 
-static void clearStats() {
+static void clearStats( void ) {
 	spin_acquire( &heapMaster.mgrLock );
 
 	// Zero the heap master and all active thread heaps.
@@ -932,14 +931,6 @@ static void clearStats() {
 	spin_release(&heapMaster.mgrLock);
 } // clearStats
 #endif // __STATISTICS__
-
-
-extern "C" void noMemory( void ) {
-	abort( "**** Error **** heap memory exhausted at %zu bytes.\n"
-		   "Possible cause is very large memory allocation and/or large amount of unfreed storage allocated by the program or system/library routines.",
-		   ((char *)(sbrk( 0 )) - (char *)(heapMaster.sbrkStart)) );
-} // noMemory
-
 
 static inline __attribute__((always_inline)) bool setMmapStart( size_t value ) { // true => mmapped, false => sbrk
   if ( value < heapMaster.pageSize || bucketSizes[Heap::NoBucketSizes - 1] < value ) return false;
@@ -1162,7 +1153,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	// The user request must include space for the header allocated along with the storage block and is a multiple of
 	// the alignment size.
 	size_t tsize = size + sizeof(Heap::Storage);		// total request space needed
-	Heap * heap = heapManager;							// optimization
+	Heap * heap = heapManager;							// optimization, as heapManager is thread_local
 
 	#ifdef __STATISTICS__
 	if ( UNLIKELY( size == 0 ) ) {						// malloc( 0 ) ?
@@ -1176,8 +1167,6 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	#ifdef __DEBUG__
 	heap->allocUnfreed += size;
 	#endif // __DEBUG__
-
-	// Memory is scrubbed in doFree for debug, so no scrubbing on allocation side.
 
 	if ( LIKELY( size < heapMaster.mmapStart ) ) {		// small size => sbrk
 		Heap::FreeHeader * freeHead =
@@ -1198,6 +1187,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		// footprint, i.e., starting using freed storage before using all the free block.
 
 		block = freeHead->freeList;						// remove node from stack
+		// For reused memory, it is scrubbed in doFree for debug, so no scrubbing on allocation side.
 		if ( LIKELY( block != nullptr ) ) {				// free block ?
 			// Get storage from the corresponding free list.
 			freeHead->freeList = block->header.kind.real.next;
@@ -1239,7 +1229,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				if ( UNLIKELY( block == nullptr ) ) return nullptr;
 
 				#ifdef __DEBUG__
-				// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
+				// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
 				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 				#endif // __DEBUG__
 			} // if
@@ -1279,8 +1269,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
 		#ifdef __DEBUG__
-		// Scrub new memory so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes. The
-		// rest of the storage set to 0 by mmap.
+		// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
+		// The rest of the storage set to 0 by mmap.
 		memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
 		#endif // __DEBUG__
 	} // if
@@ -1310,8 +1300,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	// At this point heapManager can be null because there is a thread_local deallocation *after* the destructor for the
 	// thread termination is run. The code below is prepared to handle this case and uses the master heap for statistics.
 
-	assert( addr );
-	Heap * heap = heapManager;							// optimization
+	assert( addr );										// addr == nullptr handled in free
+	Heap * heap = heapManager;							// optimization, as heapManager is thread_local
 
 	Heap::Storage::Header * header;
 	Heap::FreeHeader * freeHead;
@@ -1841,13 +1831,13 @@ extern "C" {
 
 
 	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
-	__attribute__((weak)) size_t malloc_extend() { return __DEFAULT_HEAP_EXTEND__; }
+	__attribute__((weak)) size_t malloc_extend( void ) { return __DEFAULT_HEAP_EXTEND__; }
 
 	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
-	__attribute__((weak)) size_t malloc_mmap_start() { return __DEFAULT_MMAP_START__; }
+	__attribute__((weak)) size_t malloc_mmap_start( void ) { return __DEFAULT_MMAP_START__; }
 
 	// Amount subtracted to adjust for unfreed program storage (debug only).
-	__attribute__((weak)) size_t malloc_unfreed() { return __DEFAULT_HEAP_UNFREED__; }
+	__attribute__((weak)) size_t malloc_unfreed( void ) { return __DEFAULT_HEAP_UNFREED__; }
 
 
 	// Returns original total allocation size (not bucket size) => array size is dimension * sizeof(T).
@@ -1908,7 +1898,7 @@ extern "C" {
 
 
 	// Prints (on default standard error) statistics about memory allocated by malloc and related functions.
-	void malloc_stats() {
+	void malloc_stats( void ) {
 		#ifdef __STATISTICS__
 		HeapStatistics stats;
 		HeapStatisticsCtor( stats );
@@ -1920,7 +1910,7 @@ extern "C" {
 	} // malloc_stats
 
 	// Zero the heap master and all active thread heaps.
-	void malloc_stats_clear() {
+	void malloc_stats_clear( void ) {
 		#ifdef __STATISTICS__
 		clearStats();
 		#endif // __STATISTICS__
@@ -1937,7 +1927,7 @@ extern "C" {
 		#endif // __STATISTICS__
 	} // malloc_stats_fd
 
-	void heap_stats() {
+	void heap_stats( void ) {
 		#ifdef __STATISTICS__
 		char title[32];
 		snprintf( title, 32, " (%p)", heapManager );	// always puts a null terminator
