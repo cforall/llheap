@@ -2,16 +2,22 @@
 #include <iostream>
 using namespace std;
 
-void handler() {
-    cout << "Memory allocation failed, terminating\n";
-    set_new_handler( nullptr );
+static inline void * pass( void * v ) {					// prevent eliding, cheaper than volatile
+	__asm__ __volatile__ ( "" : "+r"(v) );
+	return v ;
+} // pass
+
+static void handler() {
+	cout << "Memory allocation failed\n";
+	set_new_handler( nullptr );
 }
  
 int main() {
-    set_new_handler( handler );
-    try {
-        for ( ;; ) new int[10'000ul]{};		// initialization prevents -O3 elision to prevent spinning
-    } catch( const bad_alloc & e ) {
-        cout << e.what() << endl;
-    }
+	set_new_handler( handler );
+	try {
+		for ( ;; ) pass( new char[50] );				// unbounded allocation
+	} catch( const bad_alloc & e ) {
+		cout << e.what() << endl;
+	}
 }
+
