@@ -1455,6 +1455,15 @@ static inline __attribute__((always_inline)) void * memalignNoStats( size_t alig
 // Operators new and new [] call malloc; delete calls free
 
 
+// If this routine appears before the definition of "free", there is small performance boost from g++-14 for one of the
+// test programs. The guess is a linker placement issue results in better use of the I-cache. Ghost in the machine!  And
+// unfortunately, the routine has to be external so do not call it. And yes it took hours to track this down.
+void __XXXX_YYYY_ZZZZ__( void ) __attribute__(( deprecated ));
+void __XXXX_YYYY_ZZZZ__( void ) {
+	abort( );
+}
+
+
 //####################### Memory Allocation Routines ####################
 
 
