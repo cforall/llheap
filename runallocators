@@ -86,7 +86,6 @@ echo -n "\n\n\"glibc\"\n"
 #echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
 ${CC} ${cflag} ${program}.cc -lpthread
 #echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
-# kill pid for a.out to terminate
 if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
     ${program}
 else
