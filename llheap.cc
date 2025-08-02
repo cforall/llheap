@@ -701,7 +701,10 @@ static Heap * getHeap( void ) {
 } // HeapMaster::getHeap
 
 
+// Never called if no call to heapManagerCtor to set pthread_key_create, which enables call just before thread terminates.
 static void heapManagerDtor( void * ) {					// passed to pthread_key_create
+	assert( heapManager );
+
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
 	// push heap onto stack of free heaps for reusability
@@ -722,8 +725,10 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 } // heapManagerDtor
 
 
+// Never called if no call to malloc/free to manually trigger BOOT_HEAP_MANAGER.
 static void heapManagerCtor( void ) {
 	if ( UNLIKELY( ! heapMasterBootFlag ) ) heapMasterCtor();
+	assert( heapManager );
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
 
@@ -767,6 +772,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 
 		size_t th = 0, total = 0;
+		// Heap list is a stack, so last heap is program main.
 		for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
 			enum { Columns = 8 };
 			len = snprintf( helpText, sizeof(helpText), "Heap %'zd\n", th );
@@ -782,6 +788,10 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 				} // if
 			} // for
 			unused = write( STDERR_FILENO, "\n", 1 );	// file might be closed
+			#ifdef __DEBUG__
+			len = snprintf( helpText, sizeof(helpText), "allocUnfreed storage %'zd\n", heap->allocUnfreed );
+			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+			#endif // __DEBUG__
 		} // for
 		len = snprintf( helpText, sizeof(helpText), "Total bucket storage %'zd\n", total );
 		unused = write( STDERR_FILENO, helpText, len ); // file might be closed
@@ -1312,6 +1322,22 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	size_t size = header->kind.real.size;				// optimization
 	#endif // __STATISTICS__ || __DEBUG__
 
+	#ifdef __STATISTICS__
+	#ifndef __NULL_0_ALLOC__
+	if ( UNLIKELY( size == 0 ) )						// malloc( 0 ) ?
+		heap->stats.free_null_0_calls += 1;
+	else
+	#endif // __NULL_0_ALLOC__
+		heap->stats.free_calls += 1;					// count free amd implicit frees from resize/realloc
+	heap->stats.free_storage_request += size;
+	heap->stats.free_storage_alloc += tsize;
+	#endif // __STATISTICS__
+
+	#ifdef __DEBUG__
+	heap->allocUnfreed -= size;
+	LLDEBUG( debugprt( "\tdoFree %p %zd %zd %jd\n", heap, tsize, size, heap->allocUnfreed ) );
+	#endif // __DEBUG__
+
 	if ( LIKELY( ! mapped ) ) {							// sbrk ?
 		assert( freeHead );
 		#ifdef __DEBUG__
@@ -1342,22 +1368,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			while ( ! Casv( freeHead->remoteList, header->kind.real.next, (Heap::Storage *)header ) ) Pause();
 			#endif // __REMOTESPIN__
 
-			if ( UNLIKELY( heap == nullptr ) ) {		// heap maybe unused in the heap freelist
-				// Use master heap counters as heap is reused by this point.
-				#ifdef __STATISTICS__
-				Fai( heapMaster.stats.remote_pushes, 1 );
-				Fai( heapMaster.stats.free_storage_request, size );
-				Fai( heapMaster.stats.free_storage_alloc, tsize );
-				// Return push counters are not incremented because this is a self-return push, and there is no
-				// corresponding pull counter that needs to match.
-				#endif // __STATISTICS__
-
-				#ifdef __DEBUG__
-				Fai( heapMaster.allocUnfreed, -size );
-				LLDEBUG( debugprt( "\tdoFree2 %zd %zd %jd\n", tsize, size, heapMaster.allocUnfreed ) );
-				#endif // __DEBUG__
-				return;
-			} // if
+			assert( heap );
 
 			#ifdef __STATISTICS__
 			heap->stats.remote_pushes += 1;
@@ -1368,16 +1379,12 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 		#else											// no OWNERSHIP
 
-		if ( LIKELY( heap != nullptr ) ) {
-			freeHead = &heap->freeLists[ClearStickyBits( header->kind.real.home ) - &freeHead->homeManager->freeLists[0]];
-			header->kind.real.next = freeHead->freeList; // push on stack
-			freeHead->freeList = (Heap::Storage *)header;
-		} else {
-			// thread_local storage is leaked. No-ownership is rife with storage that appears to be leaked in an
-			// application, unless great effort is made to deal with it. A typical example is a producer creating
-			// storage and a consumer deleting it. The deleted storage piles up in the consumer's heap, and hence,
-			// appears like leaked storage from the producer's perspective.
-		} // if
+		assert( heap );
+
+		// kind.real.home is address in owner thread's freeLists, so compute the equivalent position in this thread's freeList.
+		freeHead = &heap->freeLists[ClearStickyBits( header->kind.real.home ) - &freeHead->homeManager->freeLists[0]];
+		header->kind.real.next = freeHead->freeList;	// push on stack
+		freeHead->freeList = (Heap::Storage *)header;
 		#endif // __OWNERSHIP__
 	} else {											// mmapped
 		#ifdef __STATISTICS__
@@ -1393,23 +1400,6 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 				   addr, errno );
 		} // if
 	} // if
-
-	// Do not move these up because heap can be null!
-	#ifdef __STATISTICS__
-	#ifndef __NULL_0_ALLOC__
-	if ( UNLIKELY( size == 0 ) )						// malloc( 0 ) ?
-		heap->stats.free_null_0_calls += 1;
-	else
-	#endif // __NULL_0_ALLOC__
-		heap->stats.free_calls += 1;					// count free amd implicit frees from resize/realloc
-	heap->stats.free_storage_request += size;
-	heap->stats.free_storage_alloc += tsize;
-	#endif // __STATISTICS__
-
-	#ifdef __DEBUG__
-	heap->allocUnfreed -= size;
-	LLDEBUG( debugprt( "\tdoFree %p %zd %zd %jd\n", heap, tsize, size, heap->allocUnfreed ) );
-	#endif // __DEBUG__
 } // doFree
 
 
@@ -1453,15 +1443,6 @@ static inline __attribute__((always_inline)) void * memalignNoStats( size_t alig
 } // memalignNoStats
 
 // Operators new and new [] call malloc; delete calls free
-
-
-// If this routine appears before the definition of "free", there is small performance boost from g++-14 for one of the
-// test programs. The guess is a linker placement issue results in better use of the I-cache. Ghost in the machine!  And
-// unfortunately, the routine has to be external so do not call it. And yes it took hours to track this down.
-void __XXXX_YYYY_ZZZZ__( void ) __attribute__(( deprecated ));
-void __XXXX_YYYY_ZZZZ__( void ) {
-	abort( );
-}
 
 
 //####################### Memory Allocation Routines ####################
