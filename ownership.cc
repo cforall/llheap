@@ -67,10 +67,11 @@ void * worker( void * arg ) {
 		} // for
 
 		Aligned obatch = batch;
-		while ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) { // Fas => atomic exchange
-			if ( stop ) goto fini;
+		while ( ! stop && ( (batch.col = Fas( allocations[a].col, batch.col )) == obatch.col || batch.col == nullptr ) ) { // Fas => atomic exchange
 			a = cycleUp( a, Threads );					// try another batch
 		} // while
+
+	  if ( batch.col == nullptr ) break;
 
 		for ( size_t i = 0; i < Batch; i += 1 ) {		// deallocations
 			if ( *(int *)batch.col[i] != 42 ) abort();	// read storage check
@@ -79,13 +80,14 @@ void * worker( void * arg ) {
 		cnt += Batch;									// sum allocations/frees
 		a = cycleUp( a, Threads );						// try another batchmodulo N increment
 	} // for
-  fini: ;
 	times[id] = cnt;									// return throughput
 	return nullptr;
 }; // worker
 
 
-extern "C" size_t malloc_unfreed() { return Threads * 312/* pthreads */ + 16350/*locale*/; } // llheap only
+extern "C" size_t malloc_unfreed() {					// llheap only
+	return Threads * 320/* pthreads */ + 16400/*locale*/ + 840/*printing floating-point*/;
+}
 
 int main( int argc, char * argv[] ) {
 	const char * lang = getenv( "LANG" );				// may cause memory leak
