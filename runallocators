@@ -103,8 +103,9 @@ for allocator in ${allocators} ; do
 
     # compile with preload => dynamic linking
     #echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread\n\n"
-    ${CC} ${cflag} ${program}.cc -lpthread ${allocsdir}/${allocator}
-    export LD_PRELOAD=${allocsdir}/${allocator}
+    #${CC} ${cflag} ${program}.cc -lpthread ${allocsdir}/${allocator}
+    #export LD_PRELOAD=${allocsdir}/${allocator}
+    ${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
 
     # kill pid for a.out to terminate
     if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
