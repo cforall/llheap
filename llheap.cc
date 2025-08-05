@@ -1785,7 +1785,9 @@ extern "C" {
 	// passed to free(3).
 	int posix_memalign( void ** memptr, size_t alignment, size_t size ) {
 	  if ( UNLIKELY( alignment < __ALIGN__ || ! Pow2( alignment ) ) ) return EINVAL; // check alignment
-		*memptr = memalign( alignment, size );
+		void * ret = memalign( alignment, size );
+		if ( ret == nullptr ) return ENOMEM;
+		*memptr = ret;									// only update on success
 		return 0;
 	} // posix_memalign
 
@@ -1797,7 +1799,8 @@ extern "C" {
 	} // valloc
 
 
-	// Same as valloc but rounds size to multiple of page size.
+	// Same as valloc but rounds size to multiple of page size. It is equivalent to valloc( ceiling( size,
+	// sysconf(_SC_PAGESIZE) ) ).
 	void * pvalloc( size_t size ) {
 		return memalign( heapMaster.pageSize, Ceiling( size, heapMaster.pageSize ) );
 	} // pvalloc
@@ -1875,7 +1878,7 @@ extern "C" {
 
 
 	// Returns the number of usable bytes in the block pointed to by ptr, a pointer to a block of memory allocated by
-	// malloc or a related function.
+	// malloc or a related function. Returned size is >= allocation size (bucket size).
 	size_t malloc_usable_size( void * addr ) {
 	  if ( UNLIKELY( addr == nullptr ) ) return 0;		// null allocation has zero size
 		Heap::Storage::Header * header;
