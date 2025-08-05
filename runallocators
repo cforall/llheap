@@ -5,7 +5,7 @@ hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
 allocsdir="${HOME}/software/allocators"
-allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+allocators="libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
