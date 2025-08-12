@@ -1421,6 +1421,8 @@ static inline __attribute__((always_inline)) void * memalignNoStats( size_t alig
 	size_t offset = alignment - __ALIGN__ + sizeof(Heap::Storage);
 	char * addr = (char *)doMalloc( size + offset STAT_ARG( STAT_NAME ) );
 
+  if ( UNLIKELY( addr == nullptr ) ) return nullptr;	// stop further processing if nullptr is returned
+
 	// address in the block of the "next" alignment address
 	char * user = (char *)Ceiling( (uintptr_t)(addr + sizeof(Heap::Storage)), alignment );
 
@@ -1448,6 +1450,17 @@ static inline __attribute__((always_inline)) void * memalignNoStats( size_t alig
 //####################### Memory Allocation Routines ####################
 
 
+// Realloc dilemma:
+//
+// 1. If realloc fails (ENOMEM), the original block is left untouched; it is not freed or moved, and nullptr is returned.
+//
+// 2. However, the common realloc pattern, p = realloc( p, size ), leaks memory in this case as the only address to the
+//    old storage is overwritten with nullptr.
+//
+// The only way to solve this dilemma is by adopting the posix_memalign strategy of returning two values: return code
+// and new memory address. Alternatively, C++ has two outcomes: return memory address or raise an exception from "new"
+// when out of memory.
+
 extern "C" {
 	// Allocates size bytes and returns a pointer to the allocated memory.  The contents are undefined. If size is 0,
 	// then malloc() returns a unique pointer value that can later be successfully passed to free().
@@ -1467,7 +1480,7 @@ extern "C" {
 		size_t size = dimension * elemSize;
 		char * addr = (char *)doMalloc( size STAT_ARG( HeapStatistics::CALLOC ) );
 
-	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
+	  if ( UNLIKELY( addr == nullptr ) ) return nullptr; // stop further processing if nullptr is returned
 
 		Heap::Storage::Header * header = HeaderAddr( addr ); // optimization
 
@@ -1519,9 +1532,13 @@ extern "C" {
 		} // if
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
-		doFree( oaddr );								// free previous storage
+		void * naddr = doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
 
-		return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
+	  if ( UNLIKELY( naddr == nullptr ) ) return naddr;	// stop further processing if nullptr is returned
+
+		doFree( oaddr );								// free old storage
+
+		return naddr;
 	} // resize
 
 
@@ -1585,6 +1602,8 @@ extern "C" {
 			#endif // __STATISTICS__
 			naddr = memalignNoStats( oalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 		} // if
+
+	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing if nullptr is returned
 
 		header = HeaderAddr( naddr );					// new header
 		size_t alignment;
@@ -1715,6 +1734,8 @@ extern "C" {
 
 		void * naddr = memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 
+	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing if nullptr is returned
+
 		header = HeaderAddr( naddr );					// new header
 		size_t alignment;
 		fakeHeader( header, alignment );				// could have a fake header
@@ -1754,7 +1775,7 @@ extern "C" {
 		size_t size = dimension * elemSize;
 		char * addr = (char *)memalignNoStats( alignment, size STAT_ARG( HeapStatistics::CMEMALIGN ) );
 
-	  if ( UNLIKELY( addr == NULL ) ) return NULL;		// stop further processing if NULL is returned
+	  if ( UNLIKELY( addr == nullptr ) ) return nullptr; // stop further processing if nullptr is returned
 
 		Heap::Storage::Header * header = HeaderAddr( addr ); // optimization
 		fakeHeader( header, alignment );				// must have a fake header
