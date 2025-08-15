@@ -53,7 +53,8 @@ libllheap-stats-debug.so : llheap.cc llheap.h
 clean :
 	rm -f ${OBJECTS} a.out
 
-testpgm := testgen.cc # testllheap.cc
+# testllheap.cc
+testpgm := testgen.cc
 
 test : ${OBJECTS}
 #	set -x
