@@ -1,3 +1,5 @@
+# llheap -- Memory Allocator
+
 # Install
 
 **Requires >= g++-9**
@@ -53,12 +55,11 @@ Unsupported routines.
 		void * malloc_get_state( void );
 		int malloc_set_state( void * );
 
-## Objective
+## Objectives
 
-The llheap objectives are:
-
+* low-latency => no delays in the allocator, only delays accessing the operating system to acquire storage.
 * thread-safe,
-* fast concurrent allocation/free with or without statistics/debugging,
+* fast concurrent allocation/deallocation with or without statistics/debugging,
 * making zero-fill and alignment sticky properties preserved by realloc,
 * extend semantics of existing allocator operations and provide new operations to simplify allocation and increase safety,
 * achieve performance comparable to the best allocators in common use.
@@ -74,23 +75,13 @@ The llheap objectives are:
 
 ## Added Features
 
-The following allocation features are available with llheap.
+The following allocation features are available by including `llheap.h`.
 
 ### New allocation operations
 
-#### `void * aalloc( size_t dimension, size_t elemSize )`
-equivalent to `malloc( dimension * elemSize )` *without* zero-filling the memory (faster than `calloc`).
-
-**Parameters:**
-
-* `dimension`: number of array objects
-* `elemSize`: size of array object
-
-**Return:** address of the dynamic array or NULL if allocation fails.
-
 #### `void * resize( void * oaddr, size_t size )`
 equivalent to `realloc( oaddr, size )` *without* copying previous data into the new allocation (faster than `realloc`).
-No sticky properties are preserved.
+No sticky properties are preserved and the original storage is always freed for expansion even if the new allocation fails.
 
 **Parameters:**
 
@@ -110,6 +101,41 @@ No sticky properties are preserved.
 * `elemSize`: size of array object
 
 **Return:** address of the old or new storage with the specified new size or NULL if size is zero.
+
+#### `int posix_realloc( void ** oaddrp, size_t size )`
+equivalent to `realloc( *oaddrp, size )` but prevents the p = realloc( p, size ) memory leak when ENOMEM returns NULL.
+Sticky properties are preserved and the original storage is only freed for expansion if the new allocation does not fail.
+Requires an ugly cast: `int ret = posix_realloc( (void **)&p, size )`.
+
+**Parameters:**
+
+* `oaddrp`: address of the address to be realloced
+* `size`: new allocation size (smaller or larger than previous)
+
+**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+
+#### `void * posix_reallocarray( void *p oaddrp, size_t dimension, size_t elemSize )`
+equivalent to `posix_realloc( oaddrp, dimension * elemSize )` for an array allocation.
+Sticky properties are preserved.
+
+**Parameters:**
+
+* `oaddrp`: address of the address to be realloced
+* `dimension`: number of array objects
+* `elemSize`: size of array object
+
+**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+
+#### `void * aalloc( size_t dimension, size_t elemSize )`
+equivalent to `malloc( dimension * elemSize )` *without* zero-filling the memory (faster than `calloc`).
+No sticky properties are set.
+
+**Parameters:**
+
+* `dimension`: number of array objects
+* `elemSize`: size of array object
+
+**Return:** address of the dynamic array or NULL if allocation fails.
 
 #### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
 equivalent to `memalign( alignment, dimension * elemSize )` for array alignment.
@@ -147,7 +173,7 @@ No sticky properties are preserved.
 
 **Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
 
-##### `void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
+#### `void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
 equivalent to `resizearray( oaddr, dimension, elemSize )` with an alignment.
 No sticky properties are preserved.
 
@@ -160,7 +186,7 @@ No sticky properties are preserved.
 
 #### `void * aligned_realloc( void * oaddr, size_t nalignment, size_t size )`
 equivalent to `realloc( oaddr, size )` with an alignment.
-All sticky properties are preserved.
+Sticky properties are preserved.
 
 **Parameters:**
 
@@ -171,8 +197,8 @@ All sticky properties are preserved.
 **Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
 
 #### `void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
-equivalent to `resizearray( oaddr, dimension, elemSize )` with an alignment.
-All sticky properties are preserved.
+equivalent to `reallocarray( oaddr, dimension, elemSize )` with an alignment.
+Sticky properties are preserved.
 
 * `oaddr`: address to be resized
 * `nalignment`: new alignment
@@ -180,6 +206,31 @@ All sticky properties are preserved.
 * `elemSize`: new size of array object (smaller or larger than previous)
 
 **Return:** address of the aligned old or new storage with the specified new size or NULL if the resize fails.
+
+#### `int aligned_posix_realloc( void ** oaddrp, size_t nalignment, size_t size )`
+equivalent to `posix_resizearray( oaddrp, dimension, elemSize )` with an alignment.
+Sticky properties are preserved.
+
+**Parameters:**
+
+* `oaddrp`: address of the address to be realloced
+* `nalignment`: new alignment
+* `size`: new allocation size (smaller or larger than previous)
+
+**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+
+#### `void * aligned_posix_reallocarray( void *p oaddrp, size_t nalignment, size_t dimension, size_t elemSize )`
+equivalent to `posix_reallocarray( oaddr, dimension, elemSize )` with an alignment.
+Sticky properties are preserved.
+
+**Parameters:**
+
+* `oaddrp`: address of the address to be realloced
+* `nalignment`: new alignment
+* `dimension`: number of array objects
+* `elemSize`: size of array object
+
+**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
 
 ### New control operations
 

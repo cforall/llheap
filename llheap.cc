@@ -1498,9 +1498,10 @@ extern "C" {
 
 
 	// Change the size of the memory block pointed to by oaddr to size bytes. The contents are undefined.  If oaddr is
-	// nullptr, then the call is equivalent to malloc(size), for all values of size; if size is equal to zero, and oaddr is
-	// not nullptr, then the call is equivalent to free(oaddr). Unless oaddr is nullptr, it must have been returned by an earlier
-	// call to malloc(), alloc(), calloc() or realloc(). If the area pointed to was moved, a free(oaddr) is done.
+	// nullptr, then the call is equivalent to malloc(size), for all values of size; if size is equal to zero, and oaddr
+	// is not nullptr, then the call is equivalent to free(oaddr). Unless oaddr is nullptr, it must have been returned
+	// by an earlier call to malloc(), alloc(), calloc() or realloc(). If the original area must be moved, a free(oaddr)
+	// is always done, even if the allocation of new storage fails.
 	void * resize( void * oaddr, size_t size ) {
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
 			return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) );
@@ -1532,13 +1533,8 @@ extern "C" {
 		} // if
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
-		void * naddr = doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
-
-	  if ( UNLIKELY( naddr == nullptr ) ) return naddr;	// stop further processing if nullptr is returned
-
-		doFree( oaddr );								// free old storage
-
-		return naddr;
+		doFree( oaddr );								// free original storage
+		return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
 	} // resize
 
 
@@ -1632,6 +1628,23 @@ extern "C" {
 	} // reallocarray
 
 
+	// Same as realloc() but prevents the p = realloc( p, size ) memory leak when ENOMEM returns nullptr.
+	int posix_realloc( void ** oaddrp, size_t size ) {
+		void * ret = realloc( *oaddrp, size );
+		if ( ret == nullptr && errno == ENOMEM ) return ENOMEM;
+		*oaddrp = ret;
+		return 0;
+	} // posix_realloc
+
+
+	// Same as posix_realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
+	int posix_reallocarray( void ** oaddrp, size_t dimension, size_t elemSize ) {
+		return posix_realloc( oaddrp, dimension * elemSize );
+	} // posix_realloc
+
+
+	// Below, same as their counterparts above but with alignment.
+
 	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) {
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
 			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) );
@@ -1682,7 +1695,7 @@ extern "C" {
 		} // if
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
-		doFree( oaddr );								// free previous storage
+		doFree( oaddr );								// free original storage
 		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
 	} // aligned_resize
 
@@ -1756,6 +1769,21 @@ extern "C" {
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) {
 		return aligned_realloc( oaddr, nalignment, dimension * elemSize );
 	} // aligned_reallocarray
+
+
+	// Same as aligned_realloc() but prevents the p = realloc( p, size ) memory leak when ENOMEM returns nullptr.
+	int posix_aligned_realloc( void ** oaddrp, size_t nalignment, size_t size ) {
+		void * ret = aligned_realloc( *oaddrp, nalignment, size );
+		if ( ret == nullptr && errno == ENOMEM ) return ENOMEM;
+		*oaddrp = ret;
+		return 0;
+	} // posix_aligned_realloc
+
+
+	// Same as posix_aligned_realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
+	int posix_aligned_reallocarray( void ** oaddrp, size_t nalignment, size_t dimension, size_t elemSize ) {
+		return posix_aligned_realloc( oaddrp, nalignment, dimension * elemSize );
+	} // posix_aligned_realloc
 
 
 	// Same as malloc() except the memory address is a multiple of alignment, which must be a power of two. (obsolete)
