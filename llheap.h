@@ -1,22 +1,27 @@
 #pragma once
 
 #include <malloc.h>
+#ifndef __cplusplus
+#include <stdbool.h>									// bool
+#endif
 
+#ifdef __cplusplus
 extern "C" {
+#endif
 	// New allocation operations
 	void * aalloc( size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute__ ((malloc)) __attribute_alloc_size__ ((1, 2)); // calloc - zero-fill
 	void * resize( void * oaddr, size_t size ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((2)); // realloc - data copy
 	void * resizearray( void * oaddr, size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((2, 3)); // reallocarray - data copy
-	int posix_realloc( void ** oaddrp, size_t size ) __attribute_alloc_size__ ((2));
-	int posix_reallocarray( void ** oaddrp, size_t dimension, size_t elemSize ) __attribute_alloc_size__ ((2, 3));
+	int posix_realloc( void ** oaddrp, size_t size );
+	int posix_reallocarray( void ** oaddrp, size_t dimension, size_t elemSize );
 	void * amemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute__ ((malloc)) __attribute_alloc_size__ ((2, 3)); // memalign + array
 	void * cmemalign( size_t alignment, size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute__ ((malloc)) __attribute_alloc_size__ ((2, 3)); // memalign + zero-fil
 	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((3)); // resize + alignment
 	void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((3, 4)); // resizearray + alignment
 	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((3)); // realloc + alignment
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) __attribute_warn_unused_result__ __attribute_alloc_size__ ((3, 4)); // reallocarray + alignment
-	int posix_aligned_realloc( void ** oaddrp, size_t nalignment, size_t size ) __attribute_alloc_size__ ((3));
-	int posix_aligned_reallocarray( void ** oaddrp, size_t nalignment, size_t dimension, size_t elemSize ) __attribute_alloc_size__ ((3, 4));
+	int posix_aligned_realloc( void ** oaddrp, size_t nalignment, size_t size );
+	int posix_aligned_reallocarray( void ** oaddrp, size_t nalignment, size_t dimension, size_t elemSize );
 
 	// New control operations
 	size_t malloc_extend( void );						// heap extend size (bytes)
@@ -47,7 +52,9 @@ extern "C" {
 	int malloc_trim( size_t );
 	void * malloc_get_state( void );
 	int malloc_set_state( void * );
+#ifdef __cplusplus
 } // extern "C"
+#endif
 
 // Local Variables: //
 // tab-width: 4 //
