@@ -39,6 +39,9 @@ The implementation provides the following GNUC library routines.
 		void * valloc( size_t size );
 		void * pvalloc( size_t size );
 
+For all routines, a zero-sized allocation returns a unique memory location that must be freed.
+If an allocation cannot be fulfilled because memory is full, null is returned and `errno` is set to `ENOMEM`.
+
 		int mallopt( int option, int value );
 			option M_TOP_PAD sets the amount to extend the heap size once all the current storage in the heap is
 				allocated.
@@ -75,24 +78,27 @@ Unsupported routines.
 
 ## Added Features
 
-The following allocation features are available by including `llheap.h`.
+New POSIX-style `realloc` routines are available to handle the failure case `p = realloc( p, size )`, when there is insufficient memory.
+Here, the original storage is leaked when pointer `p` is overwritten with null, negating the benefit of not freeing the storage on failure for recovery purposes.
 
 ### New allocation operations
 
+The following allocation features require including `llheap.h`.
+
 #### `void * resize( void * oaddr, size_t size )`
-equivalent to `realloc( oaddr, size )` *without* copying previous data into the new allocation (faster than `realloc`).
-No sticky properties are preserved and the original storage is always freed for expansion even if the new allocation fails.
+equivalent to `realloc( oaddr, size )` to repurpose a prior allocation for a new type *without* copying the previous data into the new allocation or preserving zero fill or alignment (faster than `realloc`).
+The original storage is always freed for expansion even if the new allocation fails.
 
 **Parameters:**
 
 * `oaddr`: address to be resized
 * `size`: new allocation size (smaller or larger than previous)
 
-**Return:** address of the old or new storage with the specified new size or NULL if size is zero.
+**Return:** address of the old or new storage with the specified new size.
 
 #### `void * resizearray( void * oaddr, size_t dimension, size_t elemSize )`
-equivalent to `resize( oaddr, dimension * elemSize )` for an array allocation (faster than `reallocarray`).
-No sticky properties are preserved.
+equivalent to `resize( oaddr, dimension * elemSize )` for a new array-type allocation *without* copying previous data into the new allocation or preserving zero fill or alignment (faster than `reallocarray`).
+The original storage is always freed for expansion even if the new allocation fails.
 
 **Parameters:**
 
@@ -100,11 +106,11 @@ No sticky properties are preserved.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** address of the old or new storage with the specified new size or NULL if size is zero.
+**Return:** address of the old or new storage with the specified new size.
 
 #### `int posix_realloc( void ** oaddrp, size_t size )`
-equivalent to `realloc( *oaddrp, size )` but prevents the p = realloc( p, size ) memory leak when ENOMEM returns NULL.
-Sticky properties are preserved and the original storage is only freed for expansion if the new allocation does not fail.
+equivalent to `oaddrp = realloc( *oaddrp, size )`.
+Sticky properties are preserved.
 Requires an ugly cast: `int ret = posix_realloc( (void **)&p, size )`.
 
 **Parameters:**
@@ -112,9 +118,10 @@ Requires an ugly cast: `int ret = posix_realloc( (void **)&p, size )`.
 * `oaddrp`: address of the address to be realloced
 * `size`: new allocation size (smaller or larger than previous)
 
-**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+**Return:** On success, directly returns 0 and indirectly the address of the new storage though output parameter `oaddrp`.
+On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set.
 
-#### `void * posix_reallocarray( void *p oaddrp, size_t dimension, size_t elemSize )`
+#### `int posix_reallocarray( void ** oaddrp, size_t dimension, size_t elemSize )`
 equivalent to `posix_realloc( oaddrp, dimension * elemSize )` for an array allocation.
 Sticky properties are preserved.
 
@@ -124,10 +131,11 @@ Sticky properties are preserved.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+**Return:** On success, directly returns 0 and indirectly the address of the new storage though output parameter `oaddrp`.
+On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set.
 
 #### `void * aalloc( size_t dimension, size_t elemSize )`
-equivalent to `malloc( dimension * elemSize )` *without* zero-filling the memory (faster than `calloc`).
+equivalent to `malloc( dimension * elemSize )` *without* zero filling the memory (faster than `calloc`).
 No sticky properties are set.
 
 **Parameters:**
@@ -135,7 +143,7 @@ No sticky properties are set.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** address of the dynamic array or NULL if allocation fails.
+**Return:** address of the dynamic array.
 
 #### `void * amemalign( size_t alignment, size_t dimension, size_t elemSize )`
 equivalent to `memalign( alignment, dimension * elemSize )` for array alignment.
@@ -147,7 +155,7 @@ Sets sticky alignment property.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** address of the aligned dynamic array or NULL if either `dimension` or `elemSize` are zero.
+**Return:** address of the aligned dynamic array.
 
 #### `void * cmemalign( size_t alignment, size_t dimension, size_t elemSize )`
 equivalent to `memset( amemalign( alignment, dimension, elemSize ), '\0', dimension * elemsize )` for array with zero fill.
@@ -159,7 +167,7 @@ Sets sticky zero-fill and alignment property.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** address of the aligned, zero-filled dynamic array or NULL if either dimension or `elemSize` are zero.
+**Return:** address of the aligned, zero-filled dynamic array.
 
 #### `void * aligned_resize( void * oaddr, size_t nalignment, size_t size )`
 equivalent to `resize( oaddr, size )` with an alignment.
@@ -171,7 +179,7 @@ No sticky properties are preserved.
 * `nalignment`: new alignment
 * `size`: new allocation size (smaller or larger than previous)
 
-**Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
+**Return:** address of the aligned old or new storage with the specified new size.
 
 #### `void * aligned_resizearray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
 equivalent to `resizearray( oaddr, dimension, elemSize )` with an alignment.
@@ -182,7 +190,7 @@ No sticky properties are preserved.
 * `dimension`: number of array objects
 * `elemSize`: new size of array object (smaller or larger than previous)
 
-**Return:** address of the aligned old or new storage with the specified new size or NULL if the resize fails.
+**Return:** address of the aligned old or new storage with the specified new size.
 
 #### `void * aligned_realloc( void * oaddr, size_t nalignment, size_t size )`
 equivalent to `realloc( oaddr, size )` with an alignment.
@@ -194,7 +202,7 @@ Sticky properties are preserved.
 * `nalignment`: new alignment
 * `size`: new allocation size (smaller or larger than previous)
 
-**Return:** address of the aligned old or new storage with the specified new size or NULL if size is zero.
+**Return:** address of the aligned old or new storage with the specified new size.
 
 #### `void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize )`
 equivalent to `reallocarray( oaddr, dimension, elemSize )` with an alignment.
@@ -205,7 +213,7 @@ Sticky properties are preserved.
 * `dimension`: number of array objects
 * `elemSize`: new size of array object (smaller or larger than previous)
 
-**Return:** address of the aligned old or new storage with the specified new size or NULL if the resize fails.
+**Return:** address of the aligned old or new storage with the specified new size.
 
 #### `int aligned_posix_realloc( void ** oaddrp, size_t nalignment, size_t size )`
 equivalent to `posix_resizearray( oaddrp, dimension, elemSize )` with an alignment.
@@ -217,9 +225,10 @@ Sticky properties are preserved.
 * `nalignment`: new alignment
 * `size`: new allocation size (smaller or larger than previous)
 
-**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+**Return:** On success, directly returns 0 and indirectly the address of the new storage though output parameter `oaddrp`.
+On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set.
 
-#### `void * aligned_posix_reallocarray( void *p oaddrp, size_t nalignment, size_t dimension, size_t elemSize )`
+#### `void * aligned_posix_reallocarray( void * oaddrp, size_t nalignment, size_t dimension, size_t elemSize )`
 equivalent to `posix_reallocarray( oaddr, dimension, elemSize )` with an alignment.
 Sticky properties are preserved.
 
@@ -230,7 +239,8 @@ Sticky properties are preserved.
 * `dimension`: number of array objects
 * `elemSize`: size of array object
 
-**Return:** directly 0 or ENOMEM; indirectly the address of the old or new storage though the output parameter.
+**Return:** On success, directly returns 0 and indirectly the address of the new storage though output parameter `oaddrp`.
+On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set.
 
 ### New control operations
 
@@ -265,7 +275,7 @@ returns the requested size of a dynamic object, which is updated when an object 
 
 * `addr`: address of allocated object.
 
-**Return:** request size or zero if `addr` is NULL.
+**Return:** request size or zero if `addr` is null.
 
 #### `size_t malloc_alignment( void * addr )`
 returns the object alignment, where the minimal alignment is 16 bytes, e.g., by `memalign`/`cmemalign`/etc.
@@ -277,7 +287,7 @@ returns the object alignment, where the minimal alignment is 16 bytes, e.g., by 
 **Return:** alignment of the given object, where objects not allocated with alignment return the minimal allocation alignment.
 
 #### `bool malloc_zero_fill( void * addr )`
-returns if the object is zero filled, e.g., by %(calloc%)/%(cmemalign%).
+returns if the object is zero filled, e.g., by `calloc`/`cmemalign`.
 
 **Parameters:**
 
