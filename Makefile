@@ -1,8 +1,4 @@
 CXX := g++-14
-ifeq ($(shell hostname),plg2)
-CXX := g++-11
-endif
-
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__
 ifeq ($(shell uname -p),aarch64)		# ARM processor ?
 #        CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
@@ -18,7 +14,7 @@ OBJECTS = libllheap.o libllheap-stats.o libllheap-debug.o libllheap-stats-debug.
 	  libllheap.so libllheap-stats.so libllheap-debug.so libllheap-stats-debug.so
 DEPENDS = ${OBJECTS:.o=.d}			# substitute ".o" with ".d"
 
-.PHONY : all clean				# not file names
+.PHONY : all clean test				# not file names
 .ONESHELL :
 .SILENT : test
 
