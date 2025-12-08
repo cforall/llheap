@@ -313,43 +313,35 @@ static void sigSegvBusHandler( __SIGPARMS__ ) {
 
 
 #ifdef __STATISTICS__
-enum { CntTriples = 13 };								// number of counter triples
+enum { CntTriples = 18 };								// number of counter triples
 struct HeapStatistics {
-	enum { MALLOC, AALLOC, CALLOC, MEMALIGN, AMEMALIGN, CMEMALIGN, RESIZE, REALLOC, FREE };
+	enum { MALLOC, AALLOC, CALLOC, RESIZE, REALLOC, MEMALIGN, AMEMALIGN, CMEMALIGN,
+		   ALIGNED_ALLOC, POSIX_MEMALIGN, VALLOC, ALIGNED_RESIZE, ALIGNED_REALLOC, FREE };
 	union {
 		// Statistic counters are unsigned long long int => use 64-bit counters on both 32 and 64 bit architectures.
 		// On 32-bit architectures, the 64-bit counters are simulated with multi-precise 32-bit computations.
 		struct {										// minimum qualification
-			unsigned long long int malloc_calls, malloc_0_calls;
-			unsigned long long int malloc_storage_request, malloc_storage_alloc;
-			unsigned long long int aalloc_calls, aalloc_0_calls;
-			unsigned long long int aalloc_storage_request, aalloc_storage_alloc;
-			unsigned long long int calloc_calls, calloc_0_calls;
-			unsigned long long int calloc_storage_request, calloc_storage_alloc;
-			unsigned long long int memalign_calls, memalign_0_calls;
-			unsigned long long int memalign_storage_request, memalign_storage_alloc;
-			unsigned long long int amemalign_calls, amemalign_0_calls;
-			unsigned long long int amemalign_storage_request, amemalign_storage_alloc;
-			unsigned long long int cmemalign_calls, cmemalign_0_calls;
-			unsigned long long int cmemalign_storage_request, cmemalign_storage_alloc;
-			unsigned long long int resize_calls, resize_0_calls;
-			unsigned long long int resize_storage_request, resize_storage_alloc;
-			unsigned long long int realloc_calls, realloc_0_calls;
-			unsigned long long int realloc_storage_request, realloc_storage_alloc;
-			unsigned long long int realloc_copy, realloc_smaller;
-			unsigned long long int realloc_align, realloc_0_fill;
-			unsigned long long int free_calls, free_null_0_calls;
-			unsigned long long int free_storage_request, free_storage_alloc;
-			unsigned long long int remote_pushes, remote_pulls;
-			unsigned long long int remote_storage_request, remote_storage_alloc;
-			unsigned long long int mmap_calls, mmap_0_calls; // no zero calls
-			unsigned long long int mmap_storage_request, mmap_storage_alloc;
-			unsigned long long int munmap_calls, munmap_0_calls; // no zero calls
-			unsigned long long int munmap_storage_request, munmap_storage_alloc;
+			unsigned long long int malloc_calls, malloc_0_calls, malloc_request, malloc_alloc;
+			unsigned long long int aalloc_calls, aalloc_0_calls, aalloc_request, aalloc_alloc;
+			unsigned long long int calloc_calls, calloc_0_calls, calloc_request, calloc_alloc;
+			unsigned long long int resize_calls, resize_0_calls, resize_request, resize_alloc;
+			unsigned long long int realloc_calls, realloc_0_calls, realloc_request, realloc_alloc;
+			unsigned long long int realloc_copy, realloc_smaller, realloc_align, realloc_0_fill;
+			unsigned long long int memalign_calls, memalign_0_calls, memalign_request, memalign_alloc;
+			unsigned long long int amemalign_calls, amemalign_0_calls, amemalign_request, amemalign_alloc;
+			unsigned long long int cmemalign_calls, cmemalign_0_calls, cmemalign_request, cmemalign_alloc;
+			unsigned long long int aligned_alloc_calls, aligned_alloc_0_calls, aligned_alloc_request, aligned_alloc_alloc;
+			unsigned long long int posix_memalign_calls, posix_memalign_alloc_0_calls, posix_memalign_alloc_request, posix_memalign_alloc_alloc;
+			unsigned long long int valloc_calls, valloc_alloc_0_calls, valloc_alloc_request, valloc_alloc_alloc;
+			unsigned long long int aligned_resize_calls, aligned_resize_0_calls, aligned_resize_request, aligned_resize_alloc;
+			unsigned long long int aligned_realloc_calls, aligned_realloc_0_calls, aligned_realloc_request, aligned_realloc_alloc;
+			unsigned long long int free_calls, free_null_0_calls, free_request, free_alloc;
+			unsigned long long int remote_pushes, remote_pulls, remote_request, remote_alloc;
+			unsigned long long int mmap_calls, mmap_0_calls, /* no zero calls */ mmap_request, mmap_alloc;
+			unsigned long long int munmap_calls, munmap_0_calls, /* no zero calls */ munmap_request, munmap_alloc;
 		};
 		struct {										// overlay for iteration
-			unsigned long long int calls, calls_0;
-			unsigned long long int request, alloc;
+			unsigned long long int calls, calls_0, request, alloc;
 		} counters[CntTriples];
 	};
 }; // HeapStatistics
@@ -542,7 +534,7 @@ struct HeapMaster {
 
 	#ifdef __STATISTICS__
 	HeapStatistics stats;								// global stats for thread-local heaps to add there counters when exiting
-	unsigned long long int nremainder, remainder;		// counts mostly unusable storage at the end of a thread's reserve block
+	unsigned long long int fragments, fragstorage;		// external fragmenation at the end of a thread's reserve blocks
 	unsigned long long int threads_started, threads_exited; // counts threads that have started and exited
 	unsigned long long int reused_heap, new_heap;		// counts reusability of heaps
 	unsigned long long int sbrk_calls;
@@ -621,7 +613,7 @@ static void heapMasterCtor( void ) {
 
 	#ifdef __STATISTICS__
 	HeapStatisticsCtor( heapMaster.stats );				// clear statistic counters
-	heapMaster.nremainder = heapMaster.remainder = 0;
+	heapMaster.fragments = heapMaster.fragstorage = 0;
 	heapMaster.threads_started = 0; heapMaster.threads_exited = 1;
 	heapMaster.reused_heap = heapMaster.new_heap = 0;
 	heapMaster.sbrk_calls = heapMaster.sbrk_storage = 0;
@@ -756,6 +748,7 @@ static void heapManagerCtor( void ) {
 
 
 NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, prio-ctor-dtor ) // singleton => called once at start of program
+	LLDEBUG( debugprt( "startup\n" ) );
 	// For static linking, startup can get here first => initialize the heap. However even with static linking, there
 	// can be be dynamic linking so heap is initialized by first call to malloc.
 	if ( ! heapMasterBootFlag ) { heapManagerCtor(); }	// sanity check
@@ -765,6 +758,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 } // startup
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor ) // singleton => called once at end of program
+	LLDEBUG( debugprt( "shutdown\n" ) );
 	if ( getenv( "MALLOC_STATS" ) ) {					// check for external printing
 		malloc_stats();
 
@@ -825,37 +819,46 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 
 
 #ifdef __STATISTICS__
+// 4 fields
 static const char * prtfmt1[] = {
 	"  malloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  aalloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  calloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
-	"  memalign  >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
-	"  amemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
-	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  resize    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  realloc   >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"            copies %'llu; smaller %'llu; alignment %'llu; 0 fill %'llu\n",
+	"  memalign  >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  amemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  aligned_alloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  posix_memalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  valloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  aligned_resize >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  aligned_realloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  remote    pushes %'llu; pulls %'llu; storage %'llu/%'llu bytes\n",
 };
+// 3 fields
 static const char * prtfmt2[] = {
 	"  mmap      calls %'llu; storage %'llu/%'llu bytes\n",
 	"  munmap    calls %'llu; storage %'llu/%'llu bytes\n",
 };
+// 2 fields
 #define prtFmt3 \
 	"  sbrk      calls %'llu; storage %'llu bytes\n" \
-	"  remainder calls %'llu; storage %'llu bytes\n" \
+	"  blocks    fragments %'llu; storage %'llu bytes\n" \
 	"  threads   started %'llu; exited %'llu\n" \
 	"  heaps     new %'llu; reused %'llu\n"
 
 
 // Use "write" because streams may be shutdown when calls are made.
 static int printStats( HeapStatistics & stats, const char * title = "" ) { // see malloc_stats
-	char helpText[2048];												   // space for message and values
+	char helpText[2048];								// space for message and values
 	int tlen = 0, len;
 
 	len = snprintf( helpText, sizeof(helpText),
 					"\nPID: %d Heap%s statistics: (storage request/allocation)\n", getpid(), title );
+	// 4 fields, print non-zero calls.
 	tlen += write( heapMaster.stats_fd, helpText, len );
 	for ( unsigned int i = 0; i < CntTriples - 2; i += 1 ) {
 		if ( stats.counters[i].calls ) {
@@ -864,6 +867,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			tlen += write( heapMaster.stats_fd, helpText, len );
 		} // if
 	} // for
+	// 3 fields, print non-zero calls.
 	for ( unsigned int i = CntTriples - 2; i < CntTriples; i += 1 ) {
 		if ( stats.counters[i].calls ) {
 			len = snprintf( helpText, sizeof(helpText), prtfmt2[CntTriples - i],
@@ -871,10 +875,10 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 			tlen += write( heapMaster.stats_fd, helpText, len );
 		} // if
 	} // for
-
+	// 2 fields
 	len = snprintf( helpText, sizeof(helpText), prtFmt3,
 		heapMaster.sbrk_calls, heapMaster.sbrk_storage,
-		heapMaster.nremainder, heapMaster.remainder,
+		heapMaster.fragments, heapMaster.fragstorage,
 		heapMaster.threads_started, heapMaster.threads_exited,
 		heapMaster.new_heap, heapMaster.reused_heap
 	);
@@ -890,18 +894,23 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	"<total type=\"malloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"aalloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"calloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
-	"<total type=\"memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
-	"<total type=\"amemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
-	"<total type=\"cmemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"resize\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"       \" copy count=\"%'llu;\" smaller count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"amemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"cmemalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"aligned_alloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"posix_memalign\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"valloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"aligned_resize\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
+	"<total type=\"aligned_realloc\" >0 count=\"%'llu;\" 0 count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"free\" !null=\"%'llu;\" 0 null/0=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"remote\" pushes=\"%'llu;\" 0 pulls=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"sbrk\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"mmap\" count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
 	"<total type=\"munmap\" count=\"%'llu;\" size=\"%'llu/%'llu\"/> bytes\n" \
-	"<total type=\"remainder\" count=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
+	"<total type=\"blocks\" fragments=\"%'llu;\" size=\"%'llu\"/> bytes\n" \
 	"<total type=\"threads\" started=\"%'llu;\" exited=\"%'llu\"/>\n" \
 	"<total type=\"heaps\" new=\"%'llu;\" reused=\"%'llu\"/>\n" \
 	"</malloc>"
@@ -909,21 +918,26 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 static int printStatsXML( HeapStatistics & stats, FILE * stream ) { // see malloc_info
 	char helpText[sizeof(prtFmtXML) + 1024];			// space for message and values
 	int len = snprintf( helpText, sizeof(helpText), prtFmtXML,
-		stats.malloc_calls, stats.malloc_0_calls, stats.malloc_storage_request, stats.malloc_storage_alloc,
-		stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_storage_request, stats.aalloc_storage_alloc,
-		stats.calloc_calls, stats.calloc_0_calls, stats.calloc_storage_request, stats.calloc_storage_alloc,
-		stats.memalign_calls, stats.memalign_0_calls, stats.memalign_storage_request, stats.memalign_storage_alloc,
-		stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_storage_request, stats.amemalign_storage_alloc,
-		stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_storage_request, stats.cmemalign_storage_alloc,
-		stats.resize_calls, stats.resize_0_calls, stats.resize_storage_request, stats.resize_storage_alloc,
-		stats.realloc_calls, stats.realloc_0_calls, stats.realloc_storage_request, stats.realloc_storage_alloc,
+		stats.malloc_calls, stats.malloc_0_calls, stats.malloc_request, stats.malloc_alloc,
+		stats.aalloc_calls, stats.aalloc_0_calls, stats.aalloc_request, stats.aalloc_alloc,
+		stats.calloc_calls, stats.calloc_0_calls, stats.calloc_request, stats.calloc_alloc,
+		stats.resize_calls, stats.resize_0_calls, stats.resize_request, stats.resize_alloc,
+		stats.realloc_calls, stats.realloc_0_calls, stats.realloc_request, stats.realloc_alloc,
 		stats.realloc_copy, stats.realloc_smaller, stats.realloc_align, stats.realloc_0_fill,
-		stats.free_calls, stats.free_null_0_calls, stats.free_storage_request, stats.free_storage_alloc,
-		stats.remote_pushes, stats.remote_pulls, stats.remote_storage_request, stats.remote_storage_alloc,
+		stats.memalign_calls, stats.memalign_0_calls, stats.memalign_request, stats.memalign_alloc,
+		stats.amemalign_calls, stats.amemalign_0_calls, stats.amemalign_request, stats.amemalign_alloc,
+		stats.cmemalign_calls, stats.cmemalign_0_calls, stats.cmemalign_request, stats.cmemalign_alloc,
+		stats.aligned_alloc_calls, stats.aligned_alloc_0_calls, stats.aligned_alloc_request, stats.aligned_alloc_alloc,
+		stats.posix_memalign_calls, stats.posix_memalign_alloc_0_calls, stats.posix_memalign_alloc_request, stats.posix_memalign_alloc_alloc,
+		stats.valloc_calls, stats.valloc_alloc_0_calls, stats.valloc_alloc_request, stats.valloc_alloc_alloc,
+		stats.aligned_resize_calls, stats.aligned_resize_0_calls, stats.aligned_resize_request, stats.aligned_resize_alloc,
+		stats.aligned_realloc_calls, stats.aligned_realloc_0_calls, stats.aligned_realloc_request, stats.aligned_realloc_alloc,
+		stats.free_calls, stats.free_null_0_calls, stats.free_request, stats.free_alloc,
+		stats.remote_pushes, stats.remote_pulls, stats.remote_request, stats.remote_alloc,
 		heapMaster.sbrk_calls, heapMaster.sbrk_storage,
-		stats.mmap_calls, stats.mmap_storage_request, stats.mmap_storage_alloc,
-		stats.munmap_calls, stats.munmap_storage_request, stats.munmap_storage_alloc,
-		heapMaster.nremainder, heapMaster.remainder,
+		stats.mmap_calls, stats.mmap_request, stats.mmap_alloc,
+		stats.munmap_calls, stats.munmap_request, stats.munmap_alloc,
+		heapMaster.fragments, heapMaster.fragstorage,
 		heapMaster.threads_started, heapMaster.threads_exited,
 		heapMaster.new_heap, heapMaster.reused_heap
 	);
@@ -1088,22 +1102,23 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 
 
 static void * manager_extend( size_t size ) {
-	// If the size requested is bigger than the current remaining reserve, so increase the reserve.
+	// If the size requested is > the current remaining reserve => increase the reserve.
 	size_t increase = Ceiling( size > ( heapMaster.sbrkExtend / 16 ) ? size : ( heapMaster.sbrkExtend / 16 ), __ALIGN__ );
 	void * newblock = master_extend( increase );
-	if ( UNLIKELY( newblock == nullptr ) ) return nullptr;
+
+  if ( UNLIKELY( newblock == nullptr ) ) return nullptr;
 
 	// Check if the new reserve block is contiguous with the old block (The only good storage is contiguous storage!)
 	// For sequential programs, this check is always true.
-	if ( newblock != (char *)heapManager->bufStart + heapManager->bufRemaining ) {
+	if ( newblock != (char *)heapManager->bufStart + heapManager->bufRemaining ) { // not contiguous ?
 		// Otherwise, find the closest bucket size to the remaining storage in the reserve block and chain it onto
 		// that free list. Distributing the storage across multiple free lists is an option but takes time.
 		ptrdiff_t rem = heapManager->bufRemaining;		// positive
 
 		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
 			#ifdef __STATISTICS__
-			heapMaster.nremainder += 1;
-			heapMaster.remainder += rem;
+			heapMaster.fragments += 1;
+			heapMaster.fragstorage += rem;
 			#endif // __STATISTICS__
 
 			Heap::FreeHeader * freeHead =
@@ -1157,6 +1172,7 @@ static void * manager_extend( size_t size ) {
 
 static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
 	BOOT_HEAP_MANAGER();
+	LLDEBUG( debugprt( "\tdoMalloc " ) );
 
 	#ifdef __NULL_0_ALLOC__
 	if ( UNLIKELY( size == 0 ) ) { STAT_0_CNT( STAT_NAME ); return nullptr; }
@@ -1209,6 +1225,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		block = freeHead->freeList;						// remove node from stack
 		// For reused memory, it is scrubbed in doFree for debug, so no scrubbing on allocation side.
 		if ( LIKELY( block != nullptr ) ) {				// free block ?
+			LLDEBUG( debugprt( "free list " ) );
 			// Get storage from the corresponding free list.
 			freeHead->freeList = block->header.kind.real.next;
 
@@ -1220,12 +1237,14 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			tsize = freeHead->blockSize;				// optimization, bucket size for request
 			ptrdiff_t rem = heap->bufRemaining - tsize;
 			if ( LIKELY( rem >= 0 ) ) {					// bump storage ?
+				LLDEBUG( debugprt( "bump     " ) );
 				heap->bufRemaining = rem;
 				block = (Heap::Storage *)heap->bufStart;
 				heap->bufStart = (char *)heap->bufStart + tsize;
 			#ifdef __OWNERSHIP__
 				// Race with adding thread, get next time if lose race.
 			} else if ( UNLIKELY( freeHead->remoteList ) ) { // returned space ?
+				LLDEBUG( debugprt( "returned " ) );
 				// Get storage by removing entire remote list and chain onto appropriate free list.
 				#ifdef __REMOTESPIN__
 				spin_acquire( &freeHead->remoteLock );
@@ -1244,6 +1263,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				freeHead->freeList = block->header.kind.real.next; // merge remoteList into freeHead
 			#endif // __OWNERSHIP__
 			} else {
+				LLDEBUG( debugprt( "get      " ) );
 				// Get storage from a *new* free block using bump alocation.
 				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
 				if ( UNLIKELY( block == nullptr ) ) { return nullptr; }
@@ -1261,6 +1281,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 
 		block->header.kind.real.home = freeHead;		// pointer back to free list of apropriate size
 	} else {											// large size => mmap
+		LLDEBUG( debugprt( "mmapp " ) );
 		#ifdef __DEBUG__
 		// Recheck because of minimum allocation size (page size).
 		if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) { errno = ENOMEM; return nullptr; }
@@ -1271,8 +1292,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		#ifdef __STATISTICS__
 		heap->stats.counters[STAT_NAME].alloc += tsize;
 		heap->stats.mmap_calls += 1;
-		heap->stats.mmap_storage_request += size;
-		heap->stats.mmap_storage_alloc += tsize;
+		heap->stats.mmap_request += size;
+		heap->stats.mmap_alloc += tsize;
 		#endif // __STATISTICS__
 
 		block = (Heap::Storage *)::mmap( 0, tsize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
@@ -1296,7 +1317,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	void * addr = &(block->data);						// adjust off header to user bytes
 	assert( ((uintptr_t)addr & (__ALIGN__ - 1)) == 0 ); // minimum alignment ?
 
-	LLDEBUG( debugprt( "\tdoMalloc %p %zd %zd %p\n", heap, size, tsize, addr ) );
+	LLDEBUG( debugprt( "%p %zd %zd %p\n", heap, size, tsize, addr ) );
 
 	return addr;
 } // doMalloc
@@ -1336,8 +1357,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	else
 	#endif // __NULL_0_ALLOC__
 		heap->stats.free_calls += 1;					// count free amd implicit frees from resize/realloc
-	heap->stats.free_storage_request += size;
-	heap->stats.free_storage_alloc += tsize;
+	heap->stats.free_request += size;
+	heap->stats.free_alloc += tsize;
 	#endif // __STATISTICS__
 
 	#ifdef __DEBUG__
@@ -1379,8 +1400,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 			#ifdef __STATISTICS__
 			heap->stats.remote_pushes += 1;
-			heap->stats.remote_storage_request += size;
-			heap->stats.remote_storage_alloc += tsize;
+			heap->stats.remote_request += size;
+			heap->stats.remote_alloc += tsize;
 			#endif // __STATISTICS__
 		} // if
 
@@ -1396,8 +1417,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	} else {											// mmapped
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
-		heap->stats.munmap_storage_request += size;
-		heap->stats.munmap_storage_alloc += tsize;
+		heap->stats.munmap_request += size;
+		heap->stats.munmap_alloc += tsize;
 		#endif // __STATISTICS__
 
 		if ( UNLIKELY( munmap( header, tsize ) == -1 ) ) {
@@ -1411,8 +1432,8 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 
 static inline __attribute__((always_inline)) void * memalignNoStats( size_t alignment, size_t size STAT_PARM ) {
-	#ifdef __DEBUG__
 	LLDEBUG( debugprt( "\tmemalignNoStats %zd %zd\n", alignment, size ) );
+	#ifdef __DEBUG__
 	checkAlign( alignment );							// check alignment is power of 2
 	#endif // __DEBUG__
 
@@ -1460,35 +1481,25 @@ static inline __attribute__((always_inline)) void * memalignNoStats( size_t alig
 //####################### Memory Allocation Routines ####################
 
 
-// Realloc dilemma:
-//
-// 1. If realloc fails (ENOMEM), the original block is left untouched; it is not freed or moved, and nullptr is returned.
-//
-// 2. However, the common realloc pattern, p = realloc( p, size ), leaks memory in this case as the only address to the
-//    old storage is overwritten with nullptr.
-//
-// The only way to solve this dilemma is by adopting the posix_memalign strategy of returning two values: return code
-// and new memory address. Alternatively, C++ has two outcomes: return memory address or raise an exception from "new"
-// when out of memory.
-
 extern "C" {
 	// Allocates size bytes and returns a pointer to the allocated memory.  The contents are undefined. If size is 0,
 	// then malloc() returns a unique pointer value that can later be successfully passed to free().
 	void * malloc( size_t size ) {
-		LLDEBUG( debugprt( "malloc %zd\n", size ) );
+		LLDEBUG( debugprt( "malloc %zd ", size ) );
 		return doMalloc( size STAT_ARG( HeapStatistics::MALLOC ) );
 	} // malloc
 
 
 	// Same as malloc() except size bytes is an array of dimension elements each of elemSize bytes.
 	void * aalloc( size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "aalloc %zd %zd ", dimension, elemSize ) );
 		return doMalloc( dimension * elemSize STAT_ARG( HeapStatistics::AALLOC ) );
 	} // aalloc
 
 
 	// Same as aalloc() with memory set to zero.
 	void * calloc( size_t dimension, size_t elemSize ) {
-		LLDEBUG( debugprt( "calloc %zd %zd\n", dimension, elemSize ) );
+		LLDEBUG( debugprt( "calloc %zd %zd ", dimension, elemSize ) );
 
 		size_t size = dimension * elemSize;
 		char * addr = (char *)doMalloc( size STAT_ARG( HeapStatistics::CALLOC ) );
@@ -1514,8 +1525,10 @@ extern "C" {
 	// nullptr, then the call is equivalent to malloc(size), for all values of size; if size is equal to zero, and oaddr
 	// is not nullptr, then the call is equivalent to free(oaddr). Unless oaddr is nullptr, it must have been returned
 	// by an earlier call to malloc(), alloc(), calloc() or realloc(). If the original area must be moved, a free(oaddr)
-	// is always done, even if the allocation of new storage fails.
+	// is always done, even if the allocation of new storage fails, so there is no p = resize( p, size ) memory leak
+	// when nullptr/ENOMEM returned.
 	void * resize( void * oaddr, size_t size ) {
+		LLDEBUG( debugprt( "resize %p %zd ", oaddr, size ) );
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
 			return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) );
 		} // if
@@ -1553,6 +1566,7 @@ extern "C" {
 
 	// Same as resize() except the new allocation size is large enough for an array of nelem elements of size elemSize.
 	void * resizearray( void * oaddr, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "resizearray %p %zd %zd ", oaddr, dimension, elemSize ) );
 		return resize( oaddr, dimension * elemSize );
 	} // resizearray
 
@@ -1560,10 +1574,10 @@ extern "C" {
 	// Same as resize() but the contents are unchanged in the range from the start of the region up to the minimum of
 	// the old and new sizes.
 	void * realloc( void * oaddr, size_t size ) {
-		LLDEBUG( debugprt( "realloc %p %zd\n", oaddr, size ) );
+		LLDEBUG( debugprt( "realloc %p %zd ", oaddr, size ) );
 
-		if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
-		  return doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) );
+	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
+			return doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) );
 		} // if
 
 	  if ( UNLIKELY( size == 0 ) ) {
@@ -1580,7 +1594,9 @@ extern "C" {
 		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
 		size_t osize = header->kind.real.size;			// old allocation size
 		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
+
 	  if ( UNLIKELY( size <= odsize ) && odsize <= size * 2 ) { // allow up to 50% wasted storage
+			LLDEBUG( debugprt( "reduce " ) );
 			#ifdef __DEBUG__
 			heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
 			#endif // __DEBUG__
@@ -1600,6 +1616,8 @@ extern "C" {
 
 		// change size and copy old content to new storage
 
+		LLDEBUG( debugprt( "change " ) );
+
 		#ifdef __STATISTICS__
 		heapManager->stats.realloc_copy += 1;
 		#endif // __STATISTICS__
@@ -1608,6 +1626,7 @@ extern "C" {
 		if ( LIKELY( oalignment <= __ALIGN__ ) ) {		// previous request not aligned ?
 			naddr = doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
 		} else {
+			LLDEBUG( debugprt( "aligned " ) );
 			#ifdef __STATISTICS__
 			heapManager->stats.realloc_align += 1;
 			#endif // __STATISTICS__
@@ -1621,6 +1640,7 @@ extern "C" {
 		fakeHeader( header, alignment );				// could have a fake header
 
 		// To preserve prior fill, the entire bucket must be copied versus the size.
+		LLDEBUG( debugprt( "\tcopy / free %p %p %zd %zd %zd", naddr, oaddr, osize, size, Min( osize, size )) );
 		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
 		doFree( oaddr );								// free previous storage
 
@@ -1630,6 +1650,7 @@ extern "C" {
 				#ifdef __STATISTICS__
 				heapManager->stats.realloc_0_fill += 1;
 				#endif // __STATISTICS__
+				LLDEBUG( debugprt( "zero fill " ) );
 				memset( (char *)naddr + osize, '\0', size - osize ); // initialize added storage
 			} // if
 		} // if
@@ -1639,14 +1660,27 @@ extern "C" {
 
 	// Same as realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
 	void * reallocarray( void * oaddr, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "reallocarray %p %zd %zd ", oaddr, dimension, elemSize ) );
 		return realloc( oaddr, dimension * elemSize );
 	} // reallocarray
 
 
-	// Same as realloc() but prevents the p = realloc( p, size ) memory leak when ENOMEM returns nullptr.
+	// Realloc dilemma:
+	//
+	// 1. If realloc fails (ENOMEM), the original block is left untouched; it is not freed or moved, and nullptr is returned.
+	//
+	// 2. However, the common realloc pattern, p = realloc( p, size ), leaks memory in this case as the only address to the
+	//    old storage is overwritten with nullptr.
+	//
+	// The only way to solve this dilemma is by adopting the posix_memalign strategy of returning two values: return code
+	// and new memory address. Alternatively, C++ has two outcomes: return memory address or raise an exception from "new"
+	// when out of memory.
+
+	// Same as realloc() but prevents the p = realloc( p, size ) memory leak when nullptr/ENOMEM returned.
 	int posix_realloc( void ** oaddrp, size_t size ) {
+		LLDEBUG( debugprt( "posix_realloc %p %zd ", oaddrp, size ) );
 		void * ret = realloc( *oaddrp, size );
-		if ( ret == nullptr && errno == ENOMEM ) { return ENOMEM; }
+	  if ( ret == nullptr && errno == ENOMEM ) { return ENOMEM; }
 		*oaddrp = ret;
 		return 0;
 	} // posix_realloc
@@ -1654,6 +1688,7 @@ extern "C" {
 
 	// Same as posix_realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
 	int posix_reallocarray( void ** oaddrp, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "posix_reallocarray %p %zd %zd ", oaddrp, dimension, elemSize ) );
 		return posix_realloc( oaddrp, dimension * elemSize );
 	} // posix_realloc
 
@@ -1661,12 +1696,13 @@ extern "C" {
 	// Below, same as their counterparts above but with alignment.
 
 	void * aligned_resize( void * oaddr, size_t nalignment, size_t size ) {
+		LLDEBUG( debugprt( "aligned_resize %p %zd %zd ", oaddr, nalignment, size ) );
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
-			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) );
+			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::ALIGNED_RESIZE ) );
 		} // if
 
 	  if ( UNLIKELY( size == 0 ) ) {
-			STAT_0_CNT( HeapStatistics::RESIZE );
+			STAT_0_CNT( HeapStatistics::ALIGNED_RESIZE );
 			doFree( oaddr );
 			return nullptr;
 		} // if
@@ -1714,7 +1750,7 @@ extern "C" {
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
 		doFree( oaddr );								// free original storage
-		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::RESIZE ) ); // create new aligned area
+		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::ALIGNED_RESIZE ) ); // create new aligned area
 	} // aligned_resize
 
 
@@ -1725,11 +1761,11 @@ extern "C" {
 
 	void * aligned_realloc( void * oaddr, size_t nalignment, size_t size ) {
 	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
-			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) );
+			return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::ALIGNED_REALLOC ) );
 		} // if
 
 	  if ( UNLIKELY( size == 0 ) ) {
-			STAT_0_CNT( HeapStatistics::REALLOC );
+			STAT_0_CNT( HeapStatistics::ALIGNED_REALLOC );
 			doFree( oaddr );
 			return nullptr;
 		} // if
@@ -1766,7 +1802,7 @@ extern "C" {
 		size_t osize = header->kind.real.size;			// old allocation size
 		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
 
-		void * naddr = memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
+		void * naddr = memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::ALIGNED_REALLOC ) ); // create new aligned area
 
 	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing if nullptr is returned
 
@@ -1788,14 +1824,16 @@ extern "C" {
 
 
 	void * aligned_reallocarray( void * oaddr, size_t nalignment, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "aligned_reallocarray %p %zd %zd %zd ", oaddr, nalignment, dimension, elemSize ) );
 		return aligned_realloc( oaddr, nalignment, dimension * elemSize );
 	} // aligned_reallocarray
 
 
 	// Same as aligned_realloc() but prevents the p = realloc( p, size ) memory leak when ENOMEM returns nullptr.
 	int posix_aligned_realloc( void ** oaddrp, size_t nalignment, size_t size ) {
+		LLDEBUG( debugprt( "posix_aligned_realloc %p %zd %zd ", oaddrp, nalignment, size ) );
 		void * ret = aligned_realloc( *oaddrp, nalignment, size );
-		if ( ret == nullptr && errno == ENOMEM ) { return ENOMEM; }
+	  if ( ret == nullptr && errno == ENOMEM ) { return ENOMEM; }
 		*oaddrp = ret;
 		return 0;
 	} // posix_aligned_realloc
@@ -1803,25 +1841,28 @@ extern "C" {
 
 	// Same as posix_aligned_realloc() except the new allocation size is large enough for an array of nelem elements of size elemSize.
 	int posix_aligned_reallocarray( void ** oaddrp, size_t nalignment, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "posix_aligned_reallocarray %p %zd %zd %zd ", oaddrp, nalignment, dimension, elemSize ) );
 		return posix_aligned_realloc( oaddrp, nalignment, dimension * elemSize );
 	} // posix_aligned_realloc
 
 
 	// Same as malloc() except the memory address is a multiple of alignment, which must be a power of two. (obsolete)
 	void * memalign( size_t alignment, size_t size ) {
-		LLDEBUG( debugprt( "memalign %zd %zd\n", alignment, size ) );
+		LLDEBUG( debugprt( "memalign %zd %zd ", alignment, size ) );
 		return memalignNoStats( alignment, size STAT_ARG( HeapStatistics::MEMALIGN ) );
 	} // memalign
 
 
 	// Same as aalloc() with memory alignment.
 	void * amemalign( size_t alignment, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "amemalign %zd %zd %zd ", alignment, dimension, elemSize ) );
 		return memalignNoStats( alignment, dimension * elemSize STAT_ARG( HeapStatistics::AMEMALIGN ) );
 	} // amemalign
 
 
 	// Same as calloc() with memory alignment.
 	void * cmemalign( size_t alignment, size_t dimension, size_t elemSize ) {
+		LLDEBUG( debugprt( "cmemalign %zd %zd %zd ", alignment, dimension, elemSize ) );
 		size_t size = dimension * elemSize;
 		char * addr = (char *)memalignNoStats( alignment, size STAT_ARG( HeapStatistics::CMEMALIGN ) );
 
@@ -1846,7 +1887,8 @@ extern "C" {
 	// Same as memalign(), but ISO/IEC 2011 C11 Section 7.22.2 states: the value of size shall be an integral multiple
 	// of alignment. This requirement is universally ignored.
 	void * aligned_alloc( size_t alignment, size_t size ) {
-		return memalign( alignment, size );
+		LLDEBUG( debugprt( "aligned_alloc %zd %zd ", alignment, size ) );
+		return memalignNoStats( alignment, size STAT_ARG( HeapStatistics::ALIGNED_ALLOC ) );
 	} // aligned_alloc
 
 
@@ -1855,8 +1897,8 @@ extern "C" {
 	// is 0, then posix_memalign() returns either nullptr, or a unique pointer value that can later be successfully
 	// passed to free(3).
 	int posix_memalign( void ** memptr, size_t alignment, size_t size ) {
-	  if ( UNLIKELY( alignment < __ALIGN__ || ! Pow2( alignment ) ) ) return EINVAL; // check alignment
-		void * ret = memalign( alignment, size );
+		LLDEBUG( debugprt( "posix_memalign %p %zd %zd ", memptr, alignment, size ) );
+		void * ret = memalignNoStats( alignment, size STAT_ARG( HeapStatistics::POSIX_MEMALIGN ) );
 		if ( ret == nullptr ) { return ENOMEM; }
 		*memptr = ret;									// only update on success
 		return 0;
@@ -1866,14 +1908,15 @@ extern "C" {
 	// Allocates size bytes and returns a pointer to the allocated memory. The memory address shall be a multiple of the
 	// page size.  It is equivalent to memalign(sysconf(_SC_PAGESIZE),size).
 	void * valloc( size_t size ) {
-		return memalign( heapMaster.pageSize, size );
+		LLDEBUG( debugprt( "valloc %zd ", size ) );
+		return memalignNoStats( heapMaster.pageSize, size STAT_ARG( HeapStatistics::VALLOC ) );
 	} // valloc
 
 
-	// Same as valloc but rounds size to multiple of page size. It is equivalent to valloc( ceiling( size,
-	// sysconf(_SC_PAGESIZE) ) ).
+	// Same as valloc but rounds size to multiple of page size.
 	void * pvalloc( size_t size ) {
-		return memalign( heapMaster.pageSize, Ceiling( size, heapMaster.pageSize ) );
+		LLDEBUG( debugprt( "pvalloc %zd ", size ) );
+		return valloc( Ceiling( size, heapMaster.pageSize ) );
 	} // pvalloc
 
 
@@ -1881,10 +1924,11 @@ extern "C" {
 	// or realloc().  Otherwise, or if free(ptr) has already been called before, undefined behaviour occurs. If ptr is
 	// nullptr, no operation is performed.
 	void free( void * addr ) {
-		LLDEBUG( debugprt( "free %p\n", addr ) );
+		LLDEBUG( debugprt( "free %p ", addr ) );
 
 		// Detect free after thread-local storage destruction and use global stats in that case.
 	  if ( UNLIKELY( addr == nullptr ) ) {				// special case
+			LLDEBUG( debugprt( "\n" ) );
 			#ifdef __STATISTICS__
 			if ( LIKELY( heapManager > (Heap *)1 ) ) { heapManager->stats.free_null_0_calls += 1; }
 			else { Fai( heapMaster.stats.free_null_0_calls, 1 ); }
