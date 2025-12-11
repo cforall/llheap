@@ -315,7 +315,7 @@ static void sigSegvBusHandler( __SIGPARMS__ ) {
 #ifdef __STATISTICS__
 enum { CntTriples = 18 };								// number of counter triples
 struct HeapStatistics {
-	enum { MALLOC, AALLOC, CALLOC, RESIZE, REALLOC, MEMALIGN, AMEMALIGN, CMEMALIGN,
+	enum { MALLOC, AALLOC, CALLOC, RESIZE, REALLOC, REALLOCX /* realloc extras */, MEMALIGN, AMEMALIGN, CMEMALIGN,
 		   ALIGNED_ALLOC, POSIX_MEMALIGN, VALLOC, ALIGNED_RESIZE, ALIGNED_REALLOC, FREE };
 	union {
 		// Statistic counters are unsigned long long int => use 64-bit counters on both 32 and 64 bit architectures.
@@ -405,19 +405,19 @@ struct Heap {
 	static_assert( __ALIGN__ >= sizeof( Storage ), "minimum alignment < sizeof( Storage )" );
 
 	struct CALIGN FreeHeader {
-		#ifdef __OWNERSHIP__
-		#ifdef __REMOTESPIN__
-		SpinLock_t remoteLock;
-		#endif // __REMOTESPIN__
-		Storage * remoteList;							// other thread remote list
-		#endif // __OWNERSHIP__
-
 		Storage * freeList;								// thread free list
 		Heap * homeManager;								// heap owner (free storage to bucket, from bucket to heap)
 		size_t blockSize;								// size of allocations on this list
 		#if defined( __STATISTICS__ )
 		size_t allocations, reuses;
 		#endif // __STATISTICS__
+
+		#ifdef __OWNERSHIP__
+		CALIGN Storage * remoteList;					// other thread remote list
+		#ifdef __REMOTESPIN__
+		SpinLock_t remoteLock;
+		#endif // __REMOTESPIN__
+		#endif // __OWNERSHIP__
 	}; // FreeHeader
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
@@ -832,7 +832,7 @@ static const char * prtfmt1[] = {
 	"  cmemalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  aligned_alloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  posix_memalign >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
-	"  valloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
+	"  valloc    >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  aligned_resize >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  aligned_realloc >0 calls %'llu; 0 calls %'llu; storage %'llu/%'llu bytes\n",
 	"  free      !null calls %'llu; null/0 calls %'llu; storage %'llu/%'llu bytes\n",
@@ -1393,7 +1393,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			#else										// lock free
 			header->kind.real.next = freeHead->remoteList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->remoteList on failure
-			while ( ! Casv( freeHead->remoteList, header->kind.real.next, (Heap::Storage *)header ) ) Pause();
+			while ( ! Casv( freeHead->remoteList, header->kind.real.next, (Heap::Storage *)header ) );
 			#endif // __REMOTESPIN__
 
 			assert( heap );
@@ -2105,8 +2105,8 @@ extern "C" {
 
 // zip -r llheap.zip heap/README.md heap/llheap.h heap/llheap.cc heap/Makefile heap/affinity.h heap/test.cc heap/ownership.cc
 
-// g++-10 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS llheap.cc -fPIC -shared -o llheap.so
+// g++-14 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ -DTLS llheap.cc -fPIC -shared -o llheap.so
 
 // Local Variables: //
-// compile-command: "g++-11 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 -DNDEBUG -D__STATISTICS__ llheap.cc -c" //
 // End: //
