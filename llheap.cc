@@ -689,13 +689,6 @@ static Heap * getHeap( void ) {
 
 		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
 			heap->freeLists[j] = (Heap::FreeHeader){
-				#ifdef __OWNERSHIP__
-				#ifdef __REMOTESPIN__
-				.remoteLock = 0,
-				#endif // __REMOTESPIN__
-				.remoteList = nullptr,
-				#endif // __OWNERSHIP__
-
 				.freeList = nullptr,
 				.homeManager = heap,
 				.blockSize = bucketSizes[j],
@@ -704,6 +697,13 @@ static Heap * getHeap( void ) {
 				.allocations = 0,
 				.reuses = 0,
 				#endif // __STATISTICS__
+
+				#ifdef __OWNERSHIP__
+				#ifdef __REMOTESPIN__
+				.remoteLock = 0,
+				#endif // __REMOTESPIN__
+				.remoteList = nullptr,
+				#endif // __OWNERSHIP__
 			};
 		} // for
 
