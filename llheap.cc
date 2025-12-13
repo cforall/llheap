@@ -759,38 +759,41 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 
 NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, prio-ctor-dtor ) // singleton => called once at end of program
 	LLDEBUG( debugprt( "shutdown\n" ) );
-	if ( getenv( "MALLOC_STATS" ) ) {					// check for external printing
-		malloc_stats();
+	char * ms = getenv( "MALLOC_STATS" );
+	if ( ms ) {											// check for external printing
+		malloc_stats();									// print statistics
 
 		#ifdef __STATISTICS__
-		char helpText[128];
-		int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket-size/allocations/reuses)\n" );
-		int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
+		if ( strcmp( ms, "1" ) == 0 ) {					// want bucket lists ?
+			char helpText[128];
+			int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket-size/allocations/reuses)\n" );
+			int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 
-		size_t th = 0, total = 0;
-		// Heap list is a stack, so last heap is program main.
-		for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
-			enum { Columns = 8 };
-			len = snprintf( helpText, sizeof(helpText), "Heap %'zd\n", th );
-			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
-			for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
-				if ( heap->freeLists[b].allocations != 0 ) {
-					total += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
-					len = snprintf( helpText, sizeof(helpText), "%'zd/%'zd/%'zd, ",
-									heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
-					unused = write( STDERR_FILENO, helpText, len ); // file might be closed
-					if ( ++c % Columns == 0 )
-						unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
-				} // if
+			size_t th = 0, total = 0;
+			// Heap list is a stack, so last heap is program main.
+			for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
+				enum { Columns = 8 };
+				len = snprintf( helpText, sizeof(helpText), "Heap %'zd\n", th );
+				unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+				for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
+					if ( heap->freeLists[b].allocations != 0 ) {
+						total += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
+						len = snprintf( helpText, sizeof(helpText), "%'zd/%'zd/%'zd, ",
+										heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
+						unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+						if ( ++c % Columns == 0 )
+							unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
+					} // if
+				} // for
+				unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
+				#ifdef __DEBUG__
+				len = snprintf( helpText, sizeof(helpText), "allocUnfreed storage %'zd\n", heap->allocUnfreed );
+				unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+				#endif // __DEBUG__
 			} // for
-			unused = write( STDERR_FILENO, "\n", 1 );	// file might be closed
-			#ifdef __DEBUG__
-			len = snprintf( helpText, sizeof(helpText), "allocUnfreed storage %'zd\n", heap->allocUnfreed );
+			len = snprintf( helpText, sizeof(helpText), "Total bucket storage %'zd\n", total );
 			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
-			#endif // __DEBUG__
-		} // for
-		len = snprintf( helpText, sizeof(helpText), "Total bucket storage %'zd\n", total );
-		unused = write( STDERR_FILENO, helpText, len ); // file might be closed
+		} // if
 		#endif // __STATISTICS__
 	} // if
 
@@ -854,27 +857,31 @@ static const char * prtfmt2[] = {
 // Use "write" because streams may be shutdown when calls are made.
 static int printStats( HeapStatistics & stats, const char * title = "" ) { // see malloc_stats
 	char helpText[2048];								// space for message and values
-	int tlen = 0, len;
+	size_t tlen = 0, len;
 
 	len = snprintf( helpText, sizeof(helpText),
 					"\nPID: %d Heap%s statistics: (storage request/allocation)\n", getpid(), title );
-	// 4 fields, print non-zero calls.
 	tlen += write( heapMaster.stats_fd, helpText, len );
-	for ( unsigned int i = 0; i < CntTriples - 2; i += 1 ) {
+
+	// 4 fields, print non-zero calls.
+	size_t boundary = CntTriples - 2;
+	for ( size_t i = 0; i < boundary; i += 1 ) {
 		if ( stats.counters[i].calls ) {
 			len = snprintf( helpText, sizeof(helpText), prtfmt1[i],
 							stats.counters[i].calls, stats.counters[i].calls_0, stats.counters[i].request, stats.counters[i].alloc );
 			tlen += write( heapMaster.stats_fd, helpText, len );
 		} // if
 	} // for
+
 	// 3 fields, print non-zero calls.
-	for ( unsigned int i = CntTriples - 2; i < CntTriples; i += 1 ) {
+	for ( size_t i = boundary; i < CntTriples; i += 1 ) {
 		if ( stats.counters[i].calls ) {
-			len = snprintf( helpText, sizeof(helpText), prtfmt2[CntTriples - i],
+			len = snprintf( helpText, sizeof(helpText), prtfmt2[i - boundary],
 							stats.counters[i].calls, stats.counters[i].request, stats.counters[i].alloc );
 			tlen += write( heapMaster.stats_fd, helpText, len );
 		} // if
 	} // for
+
 	// 2 fields
 	len = snprintf( helpText, sizeof(helpText), prtFmt3,
 		heapMaster.sbrk_calls, heapMaster.sbrk_storage,
