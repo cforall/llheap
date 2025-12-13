@@ -74,7 +74,7 @@ Unsupported routines.
 * `memalign`, `aligned_alloc`, `posix_memalign`, `valloc` and `pvalloc` set the sticky alignment property, remembering the specified alignment size.
 * `realloc` and `reallocarray` preserve sticky properties across copying.
 * `malloc_stats` prints detailed statistics of allocation/free operations when linked with a statistic version.
-* Existence of shell variable `MALLOC_STATS` implicitly calls `malloc_stats` at program termination.
+* Existence of shell variable `MALLOC_STATS` implicitly calls `malloc_stats` at program termination. If `MALLOC_STATS=1`, allocation-bucket information is printed.
 
 ## Added Features
 
