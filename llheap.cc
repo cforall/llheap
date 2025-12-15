@@ -384,7 +384,7 @@ struct Heap {
 				struct RealHeader {						// 4-byte word => 8-byte header, 8-byte word => 16-byte header
 					union {
 						// 2nd low-order bit => zero filled, 3rd low-order bit => mmapped
-						FreeHeader * home;				// allocated block points back to home locations (must overlay alignment)
+						FreeHeader * home;				// allocated block points back to home free header (must overlay alignment in fake header)
 						size_t blockSize;				// size for munmap (must overlay alignment)
 						Storage * next;					// freed block points to next freed block of same size
 					};
@@ -687,11 +687,11 @@ static Heap * getHeap( void ) {
 		heapMaster.new_heap += 1;
 		#endif // __STATISTICS__
 
-		for ( unsigned int j = 0; j < Heap::NoBucketSizes; j += 1 ) { // initialize free lists
-			heap->freeLists[j] = (Heap::FreeHeader){
+		for ( size_t b = 0; b < Heap::NoBucketSizes; b += 1 ) { // initialize free lists
+			heap->freeLists[b] = (Heap::FreeHeader){
 				.freeList = nullptr,
 				.homeManager = heap,
-				.blockSize = bucketSizes[j],
+				.blockSize = bucketSizes[b],
 
 				#if defined( __STATISTICS__ )
 				.allocations = 0,
@@ -699,10 +699,10 @@ static Heap * getHeap( void ) {
 				#endif // __STATISTICS__
 
 				#ifdef __OWNERSHIP__
+				.remoteList = nullptr,
 				#ifdef __REMOTESPIN__
 				.remoteLock = 0,
 				#endif // __REMOTESPIN__
-				.remoteList = nullptr,
 				#endif // __OWNERSHIP__
 			};
 		} // for
@@ -1240,17 +1240,9 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			freeHead->reuses += 1;
 			#endif // __STATISTICS__
 		} else {
-			// Get storage from free block using bump allocation.
-			tsize = freeHead->blockSize;				// optimization, bucket size for request
-			ptrdiff_t rem = heap->bufRemaining - tsize;
-			if ( LIKELY( rem >= 0 ) ) {					// bump storage ?
-				LLDEBUG( debugprt( "bump     " ) );
-				heap->bufRemaining = rem;
-				block = (Heap::Storage *)heap->bufStart;
-				heap->bufStart = (char *)heap->bufStart + tsize;
 			#ifdef __OWNERSHIP__
-				// Race with adding thread, get next time if lose race.
-			} else if ( UNLIKELY( freeHead->remoteList ) ) { // returned space ?
+			// Race with adding thread, get next time if lose race.
+			if ( UNLIKELY( freeHead->remoteList ) ) {	// returned space ?
 				LLDEBUG( debugprt( "returned " ) );
 				// Get storage by removing entire remote list and chain onto appropriate free list.
 				#ifdef __REMOTESPIN__
@@ -1268,17 +1260,27 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				#endif // __STATISTICS__
 
 				freeHead->freeList = block->header.kind.real.next; // merge remoteList into freeHead
-			#endif // __OWNERSHIP__
 			} else {
-				LLDEBUG( debugprt( "get      " ) );
-				// Get storage from a *new* free block using bump alocation.
-				block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
-				if ( UNLIKELY( block == nullptr ) ) { return nullptr; }
+			#endif // __OWNERSHIP__
+				// Get storage from free block using bump allocation.
+				tsize = freeHead->blockSize;			// optimization, bucket size for request
+				ptrdiff_t rem = heap->bufRemaining - tsize;
+				if ( LIKELY( rem >= 0 ) ) {				// bump storage ?
+					LLDEBUG( debugprt( "bump     " ) );
+					heap->bufRemaining = rem;
+					block = (Heap::Storage *)heap->bufStart;
+					heap->bufStart = (char *)heap->bufStart + tsize;
+				} else {
+					LLDEBUG( debugprt( "get      " ) );
+					// Get storage from a *new* free block using bump alocation.
+					block = (Heap::Storage *)manager_extend( tsize ); // mutual exclusion on call
+					if ( UNLIKELY( block == nullptr ) ) { return nullptr; }
 
-				#ifdef __DEBUG__
-				// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
-				memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
-				#endif // __DEBUG__
+					#ifdef __DEBUG__
+					// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
+					memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+					#endif // __DEBUG__
+				} // if
 			} // if
 
 			#ifdef __STATISTICS__
