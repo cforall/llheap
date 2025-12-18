@@ -4,10 +4,15 @@ exec=a.out
 hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
-allocsdir="${HOME}/software/allocators"
-allocators="libhoard.so libjemalloc.so libllheap.so libmimalloc.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+if [ ${hostname} = "plg2" ] ; then
+    allocsdir="${HOME}/software/llheap"
+    allocators="glibc libllheap.so"
+else
+    allocsdir="${HOME}/software/allocators"
+    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+fi
 
-cflag="-g -O3 -Wall -Wextra  -D${hostname}" # -DLINEARAFF
+cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
 #    atomicinst=-mno-outline-atomics	# use ARM LL/SC instructions for atomics
     atomicinst=-march=armv8.2-a+lse	# use ARM LSE instructions for atomics
@@ -30,7 +35,7 @@ fi
 rm -rf core
 
 # force initial thread to start on socket boundary
-if [ "${hostname}" = "swift" ] ; then
+if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
     taskset="taskset --cpu-list 128"
 elif [ "${hostname}" = "java" ] ; then
     taskset="taskset --cpu-list 0"
@@ -58,14 +63,6 @@ if [ "${program}" = "reallocshort" ] ; then
    dims=0
 fi
 
-echo -n "\n\n\"glibc\"\n"
-for dim in ${dims} ; do
-    # compile with preload => dynamic linking
-    #echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
-    ${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
-    eval ${time} ${strace} ${taskset} ./${exec} ${args}
-done
-
 for allocator in ${allocators} ; do
     allocatorname=`echo ${allocator} | sed -e "s/lib\(.*\).so/\1/"`
     echo -n "\n\n\"${allocatorname}\"\n"
@@ -74,7 +71,9 @@ for allocator in ${allocators} ; do
         # compile with preload => dynamic linking
 	#echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
 	${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
-	export LD_PRELOAD=${allocsdir}/${allocator}
+	if [ "${allocator}" != "glibc" ] ; then
+	    export LD_PRELOAD=${allocsdir}/${allocator}
+	fi
 	eval ${time} ${strace} ${taskset} ./${exec} ${args}
     done
 done

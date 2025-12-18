@@ -11,7 +11,7 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 #define HYPERAFF
 #endif // HYPERAFF
 
-#if defined( swift )
+#if defined( swift ) || defined( plg2 )
 	enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 128, HYPER = 1 };
 	#if defined( LINEARAFF )
 	int cpu = tid + ((tid < CORES) ? OFFSETSOCK * CORES : HYPER < 2 ? OFFSETSOCK * CORES : CORES * SOCKETS);
@@ -55,10 +55,7 @@ void affinity( pthread_t pthreadid, unsigned int tid ) {
 	// HYPERAFF unsupported for these architectures.
 	#define LINEARAFF
 
-#if defined( plg2 )									// old AMD
-	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 1, CORES = 16, HYPER = 1 };
-	tid *= 8; // seperate caches
-#elif defined( algol )								// ARM
+#if defined( algol )								// ARM
 	enum { OFFSETSOCK = 0 /* 0 origin */, SOCKETS = 2, CORES = 48, HYPER = 1 };
 #elif defined( prolog )								// ARM
 	// enum { OFFSETSOCK = 1 /* 0 origin */, SOCKETS = 2, CORES = 64, HYPER = 1 }; // pretend 2 sockets

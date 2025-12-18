@@ -4,8 +4,13 @@ exec=a.out
 hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
-allocsdir="${HOME}/software/allocators"
-allocators="libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+if [ ${hostname} = "plg2" ] ; then
+    allocsdir="${HOME}/software/llheap"
+    allocators="glibc libllheap.so"
+else
+    allocsdir="${HOME}/software/allocators"
+    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libsnmalloc-minimal.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
 if [ "${hostname}" = "algol" -o "${hostname}" = "prolog" ] ; then # ARM
@@ -30,7 +35,7 @@ fi
 rm -rf core
 
 # force initial thread to start on socket boundary
-if [ "${hostname}" = "swift" ] ; then
+if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
     taskset="taskset --cpu-list 128"
 elif [ "${hostname}" = "java" ] ; then
     taskset="taskset --cpu-list 0"
@@ -82,30 +87,28 @@ bad_alloc() {
     eval ${time} ${strace} ${perf} ${taskset} ./${exec}
 }
 
-echo -n "\n\n\"glibc\"\n"
-#echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
-${CC} ${cflag} ${program}.cc -lpthread
-#echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
-if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
-    ${program}
-else
-    eval ${time} ${strace} ${perf} ${taskset} ./${exec}
-fi
-
 for allocator in ${allocators} ; do
     allocatorname=`echo ${allocator} | sed -e "s/lib\(.*\).so/\1/"`
     echo -n "\n\n\"${allocatorname}\"\n"
 
     # compile without preload for checking => dynamic linking
-    # echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
-    # ${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
-    # echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
+#    if [ "${allocator}" = "glibc" ] ; then
+#	# echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
+#	${CC} ${cflag} ${program}.cc -lpthread
+#    else
+#	# echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}\n\n"
+#	${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
+#    fi
 
     # compile with preload => dynamic linking
-    #echo -n "${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread\n\n"
-    #${CC} ${cflag} ${program}.cc -lpthread ${allocsdir}/${allocator}
-    #export LD_PRELOAD=${allocsdir}/${allocator}
-    ${CC} ${cflag} ${program}.cc ${allocsdir}/${allocator} -lpthread -U malloc -Wl,-rpath=${allocsdir}
+    # echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
+    ${CC} ${cflag} ${program}.cc -lpthread
+    if [ "${allocator}" != "glibc" ] ; then
+	# echo -n "$LD_PRELOAD=${allocsdir}/${allocator}\n\n"
+	export LD_PRELOAD=${allocsdir}/${allocator}
+    fi
+
+    # echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
 
     # kill pid for a.out to terminate
     if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
