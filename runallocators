@@ -32,8 +32,6 @@ else
     exit 1
 fi
 
-rm -rf core
-
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
     taskset="taskset --cpu-list 128"
@@ -119,5 +117,6 @@ for allocator in ${allocators} ; do
 done
 
 rm -f "${exec}"
+rm -rf core		# some tests fail
 
 exit 0
