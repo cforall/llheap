@@ -495,7 +495,7 @@ static unsigned char CALIGN lookup[LookupSizes];		// O(1) lookup for small sizes
 enum {
 	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXTEND__ = 8 * 1024 * 1024,
+	__DEFAULT_HEAP_EXTEND__ = 1 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
