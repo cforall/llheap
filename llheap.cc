@@ -83,11 +83,13 @@ static void abort( const char fmt[], ... ) {			// overload real abort
 	va_list args;
 	va_start( args, fmt );
 	char buf[BufSize];
+
 	int len = vsnprintf( buf, BufSize, fmt, args );
 	int unused __attribute__(( unused )) = write( STDERR_FILENO, buf, len ); // file might be closed
 	if ( fmt[strlen( fmt ) - 1] != '\n' ) {				// add optional newline if missing at the end of the format text
 		int unused __attribute__(( unused )) = write( STDERR_FILENO, "\n", 1 ); // file might be closed
 	} // if
+
 	va_end( args );
 	#ifdef __DEBUG__
 	backtrace( signal_p ? 4 : 2 );
@@ -495,7 +497,7 @@ static unsigned char CALIGN lookup[LookupSizes];		// O(1) lookup for small sizes
 enum {
 	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXTEND__ = 1 * 1024 * 1024,
+	__DEFAULT_HEAP_EXTEND__ = 10 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
@@ -614,7 +616,8 @@ static void heapMasterCtor( void ) {
 	#ifdef __STATISTICS__
 	HeapStatisticsCtor( heapMaster.stats );				// clear statistic counters
 	heapMaster.fragments = heapMaster.fragstorage = 0;
-	heapMaster.threads_started = 0; heapMaster.threads_exited = 1;
+	heapMaster.threads_started = 0;
+	heapMaster.threads_exited = 1;						// fake as final thread still running
 	heapMaster.reused_heap = heapMaster.new_heap = 0;
 	heapMaster.sbrk_calls = heapMaster.sbrk_storage = 0;
 	heapMaster.stats_fd = STDERR_FILENO;
@@ -769,7 +772,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 			int len = snprintf( helpText, sizeof(helpText), "\nFree Bucket Usage: (bucket-size/allocations/reuses)\n" );
 			int unused __attribute__(( unused )) = write( STDERR_FILENO, helpText, len ); // file might be closed
 
-			size_t th = 0, total = 0;
+			size_t th = 0, subtotal = 0, total = 0;
 			// Heap list is a stack, so last heap is program main.
 			for ( Heap * heap = heapMaster.heapManagersList; heap; heap = heap->nextHeapManager, th += 1 ) {
 				enum { Columns = 8 };
@@ -777,7 +780,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 				unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 				for ( size_t b = 0, c = 0; b < Heap::NoBucketSizes; b += 1 ) {
 					if ( heap->freeLists[b].allocations != 0 ) {
-						total += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
+						subtotal += heap->freeLists[b].blockSize * heap->freeLists[b].allocations;
 						len = snprintf( helpText, sizeof(helpText), "%'zd/%'zd/%'zd, ",
 										heap->freeLists[b].blockSize, heap->freeLists[b].allocations, heap->freeLists[b].reuses );
 						unused = write( STDERR_FILENO, helpText, len ); // file might be closed
@@ -785,11 +788,14 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 							unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
 					} // if
 				} // for
-				unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
+				len = snprintf( helpText, sizeof(helpText), "\nSubtotal bucket storage %'zd\n", subtotal );
+				unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 				#ifdef __DEBUG__
 				len = snprintf( helpText, sizeof(helpText), "allocUnfreed storage %'zd\n", heap->allocUnfreed );
 				unused = write( STDERR_FILENO, helpText, len ); // file might be closed
 				#endif // __DEBUG__
+				unused = write( STDERR_FILENO, "\n", 1 ); // file might be closed
+				total += subtotal;
 			} // for
 			len = snprintf( helpText, sizeof(helpText), "Total bucket storage %'zd\n", total );
 			unused = write( STDERR_FILENO, helpText, len ); // file might be closed
@@ -889,6 +895,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 		heapMaster.threads_started, heapMaster.threads_exited,
 		heapMaster.new_heap, heapMaster.reused_heap
 	);
+
 	tlen += write( heapMaster.stats_fd, helpText, len );
 	return tlen;
 } // printStats
@@ -1244,7 +1251,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			// Race with adding thread, get next time if lose race.
 			if ( UNLIKELY( freeHead->remoteList ) ) {	// returned space ?
 				LLDEBUG( debugprt( "returned " ) );
-				// Get storage by removing entire remote list and chain onto appropriate free list.
+				// Get storage by removing entire remote list, take first node, and chain remainder onto appropriate free list.
 				#ifdef __REMOTESPIN__
 				spin_acquire( &freeHead->remoteLock );
 				block = freeHead->remoteList;
@@ -1253,13 +1260,11 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 				#else
 				block = Fas( freeHead->remoteList, nullptr );
 				#endif // __REMOTESPIN__
+				freeHead->freeList = block->header.kind.real.next; // remainder becomes free list
 
-				assert( block );
 				#ifdef __STATISTICS__
 				heap->stats.remote_pulls += 1;
 				#endif // __STATISTICS__
-
-				freeHead->freeList = block->header.kind.real.next; // merge remoteList into freeHead
 			} else {
 			#endif // __OWNERSHIP__
 				// Get storage from free block using bump allocation.
@@ -1340,7 +1345,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	// is a problem for statistics, the consumer needs a heap to gather statistics. Hence, the special case to trigger a
 	// heap if there is none.
 	BOOT_HEAP_MANAGER();								// singlton
-	#endif // __STATISTICS__ || __DEBUG__
+	#endif // __STATISTICS__ || __DEBUG__ || __OWNERSHIP__
 
 	// At this point heapManager can be null because there is a thread_local deallocation *after* the destructor for the
 	// thread termination is run. The code below is prepared to handle this case and uses the master heap for statistics.
@@ -1908,7 +1913,7 @@ extern "C" {
 	int posix_memalign( void ** memptr, size_t alignment, size_t size ) {
 		LLDEBUG( debugprt( "posix_memalign %p %zd %zd ", memptr, alignment, size ) );
 		void * ret = memalignNoStats( alignment, size STAT_ARG( HeapStatistics::POSIX_MEMALIGN ) );
-		if ( ret == nullptr ) { return ENOMEM; }
+	  if ( ret == nullptr ) { return ENOMEM; }
 		*memptr = ret;									// only update on success
 		return 0;
 	} // posix_memalign
