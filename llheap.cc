@@ -424,7 +424,7 @@ struct Heap {
 
 	// Recursive definitions: HeapManager needs size of bucket array and bucket area needs sizeof HeapManager storage.
 	// Break recursion by hardcoding number of buckets and statically checking number is correct after bucket array defined.
-	enum { NoBucketSizes = 60 };						// number of bucket sizes
+	enum { NoBucketSizes = 64 };						// number of bucket sizes
 
 	FreeHeader freeLists[NoBucketSizes];				// buckets for different allocation sizes
 	void * bufStart;									// start of current buffer
@@ -468,6 +468,8 @@ static const unsigned int CALIGN bucketSizes[] = {		// different bucket sizes
 	1'572'864, 2'097'152 + sizeof(Heap::Storage), // 2
 	3'145'728, 4'194'304 + sizeof(Heap::Storage), // 2
 	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
+	25'165'824 + sizeof(Heap::Storage), 33'554'432 + sizeof(Heap::Storage), // 2
+	50'331'648 + sizeof(Heap::Storage),	67'108'864 + sizeof(Heap::Storage), // 2
 };
 
 static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array is wrong" );
@@ -501,7 +503,7 @@ enum {
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
-	__DEFAULT_MMAP_START__ = 8 * 1024 * 1024 + sizeof(Heap::Storage),
+	__DEFAULT_MMAP_START__ = 32 * 1024 * 1024 + sizeof(Heap::Storage),
 
 	// The default unfreed storage amount in units of bytes. When the program ends it subtracts this amount from
 	// the malloc/free counter to adjust for storage the program does not free.
