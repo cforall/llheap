@@ -1,10 +1,10 @@
 CXX := g++
 CXXFLAGS := -g -O3 -Wall -Wextra # -D__FASTLOOKUP__ -D__OWNERSHIP__ -D__REMOTESPIN__
 ifeq ($(shell uname -p),aarch64)		# ARM processor ?
-	# CXXFLAGS += -mno-outline-atomics	# use ARM LL/SC instructions for atomics
-	ifeq ($(shell lscpu | grep -c "Flags.*atomics"),1) # atomic instructions ?
-        	CXXFLAGS += -march=armv8.2-a+lse # use ARM LSE instructions for atomics
-	endif
+    # CXXFLAGS += -mno-outline-atomics		# use ARM LL/SC instructions for atomics
+    ifeq ($(shell lscpu | grep -c "Flags.*atomics"),1) # atomic instructions ?
+        CXXFLAGS += -march=armv8.2-a+lse	# use ARM LSE instructions for atomics
+    endif
 endif
 
 LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-asynchronous-unwind-tables \
