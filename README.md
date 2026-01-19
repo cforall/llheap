@@ -242,30 +242,6 @@ Sticky properties are preserved.
 **Return:** On success, directly returns 0 and indirectly the address of the new storage though output parameter `oaddrp`.
 On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set.
 
-### New control operations
-
-These routines are called *once* during llheap startup to set specific limits *before* an application starts.
-Setting these value early is essential because allocations can occur from the dynamic loader and other libraries before application code executes.
-To set a value, define a specific routine in an application and return the desired value, e.g.:
-
-		size_t malloc_extend( void ) { return 16 * 1024 * 1024; }  // bytes
-
-#### `size_t malloc_extend( void )`
-return the number of bytes to extend the `sbrk` area when there is insufficient free storage to service an allocation request.
-
-**Return:** heap extension size used throughout a program.
-
-#### `size_t malloc_mmap_start( void )`
-return the crossover allocation size from the `sbrk` area to separate mapped areas.
-Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
-
-**Return:** crossover point used throughout a program.
-
-#### `size_t malloc_unfreed( void )`
-return the amount subtracted from the global unfreed program storage to adjust for unreleased storage from routines like `printf` (debug only).
-
-**Return:** new subtraction amount and called by `malloc_stats`.
-
 ### New object preserved-properties
 
 #### `size_t malloc_size( void * addr )`
@@ -306,6 +282,12 @@ returns if the object is from a remote heap (`OWNERSHIP` only).
 
 ### New statistics control
 
+#### `bool malloc_stats_all( bool state )`
+set state true means print information about heap buckets when `malloc_stats` is called.
+Default is false: do not print bucket information.
+
+**Return:** previous statistics all state.
+
 #### `int malloc_stats_fd( int fd )`
 set the file descriptor for `malloc_stats` writes (default `stdout`).
 
@@ -316,3 +298,27 @@ clear the statistics counters for all thread heaps.
 
 #### `void heap_stats( void )`
 extends `malloc_stats` to only print statistics for the heap associated with the executing thread.
+
+### New control operations
+
+These routines are called *once* during llheap startup to set specific limits *before* an application starts.
+Setting these value early is essential because allocations can occur from the dynamic loader and other libraries before application code executes.
+To set a value, define a specific routine in an application and return the desired value, e.g.:
+
+		size_t malloc_extend( void ) { return 16 * 1024 * 1024; }  // bytes
+
+#### `size_t malloc_extend( void )`
+return the number of bytes to extend the `sbrk` area when there is insufficient free storage to service an allocation request.
+
+**Return:** heap extension size used throughout a program.
+
+#### `size_t malloc_mmap_start( void )`
+return the crossover allocation size from the `sbrk` area to separate mapped areas.
+Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
+
+**Return:** crossover point used throughout a program.
+
+#### `size_t malloc_unfreed( void )`
+return the amount subtracted from the global unfreed program storage to adjust for unreleased storage from routines like `printf` (debug only).
+
+**Return:** new subtraction amount and called by `malloc_stats`.

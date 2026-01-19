@@ -1,5 +1,7 @@
 #pragma once
 
+#define __llheap_h__
+
 #include <malloc.h>
 #ifndef __cplusplus
 #include <stdbool.h>									// bool
@@ -35,6 +37,7 @@ extern "C" {
 	bool malloc_remote( void * addr ) __attribute_warn_unused_result__;		 // true if object is remote
 
 	// Statistics
+	bool malloc_stats_all( bool state );				// print bucket lists with statistics
 	int malloc_stats_fd( int fd );						// file descriptor global malloc_stats() writes (default stdout)
 	void malloc_stats_clear( void );					// clear global heap statistics
 	void heap_stats( void );							// print thread per heap statistics
