@@ -40,7 +40,6 @@ inline double dur( timespec end, timespec start ) {
 void * worker( void * ) {
 	enum { NoOfAllocs = 10'000, NoOfMmaps = 10 };
 	char * locns[NoOfAllocs];
-	size_t amount;
 	enum { limit = 64 * 1024 };							// check alignments up to here
 
 	// check new/delete
@@ -353,7 +352,6 @@ void * worker( void * ) {
 		free( area );
 	} // for
 
-#if 1
 	// check malloc/resize/free (sbrk)
 
 	for ( int i = 2; i < NoOfAllocs; i += 12 ) {
@@ -545,11 +543,13 @@ void * worker( void * ) {
 
 	// check memalign/resize with align/free
 
+	size_t amount;
+
 	amount = 2;
 	for ( size_t a = __ALIGN__; a <= limit; a += a ) {	// generate powers of 2
 		// initial N byte allocation
 		char * area = (char *)memalign( a, amount );	// aligned N-byte allocation
-		//sout | alignments[a] | area | endl;
+
 		if ( (size_t)area % a != 0 || malloc_alignment( area ) != a ) { // check for initial alignment
 			abort( "memalign/resize with align/free bad alignment : memalign( %d, %d ) = %p", (int)a, (int)amount, area );
 		} // if
@@ -558,7 +558,6 @@ void * worker( void * ) {
 		// Do not start this loop index at 0 because resize of 0 bytes frees the storage.
 		for ( int s = amount; s < 256 * 1024; s += 1 ) { // start at initial memory request
 			area = (char *)aligned_resize( area, a * 2, s ); // attempt to reuse storage
-			//sout | i | area | endl;
 			if ( (size_t)area % a * 2 != 0 ) {			// check for initial alignment
 				abort( "memalign/resize with align/free bad alignment %p", area );
 			} // if
@@ -598,7 +597,7 @@ void * worker( void * ) {
 	for ( size_t a = __ALIGN__; a <= limit; a += a ) {	// generate powers of 2
 		// initial N byte allocation
 		char * area = (char *)amemalign( a, amount, 10 );	// aligned N-byte allocation
-		//sout | alignments[a] | area | endl;
+
 		if ( (size_t)area % a != 0 || malloc_alignment( area ) != a ) { // check for initial alignment
 			abort( "amemalign/resize with align/free bad alignment : amemalign( %d, %d ) = %p", (int)a, (int)amount, area );
 		} // if
@@ -607,7 +606,6 @@ void * worker( void * ) {
 		// Do not start this loop index at 0 because resize of 0 bytes frees the storage.
 		for ( int s = amount; s < 256 * 1024; s += 1 ) { // start at initial memory request
 			area = (char *)aligned_resize( area, a * 2, s ); // attempt to reuse storage
-			//sout | i | area | endl;
 			if ( (size_t)area % a * 2 != 0 ) {			// check for initial alignment
 				abort( "amemalign/resize with align/free bad alignment %p", area );
 			} // if
