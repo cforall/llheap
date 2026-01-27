@@ -8,8 +8,10 @@ if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
     allocators="glibc libllheap.so"
 else
-    allocsdir="${HOME}/software/allocators"
-    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+#    allocsdir="${HOME}/software/allocators"
+    allocsdir="${HOME}/software/mimalloc-bench/extern"
+#    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/x86-64/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
 fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
@@ -64,17 +66,18 @@ if [ "${program}" = "reallocshort" ] ; then
 fi
 
 for allocator in ${allocators} ; do
-    allocatorname=`echo ${allocator} | sed -e "s/lib\(.*\).so/\1/"`
+    allocatorname=`echo ${allocator} | sed -e "s@\([a-zA-Z0-9]*\)/.*.so@\1@"`
     echo -n "\n\n\"${allocatorname}\"\n"
 
     for dim in ${dims} ; do
         # compile with preload => dynamic linking
-	#echo -n "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread\n"
+	#echo "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread"
 	${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
 	if [ "${allocator}" != "glibc" ] ; then
 	    export LD_PRELOAD=${allocsdir}/${allocator}
+	    #echo "${LD_PRELOAD}"
 	fi
-	eval ${time} ${strace} ${taskset} ./${exec} ${args}
+	eval ${time} ${strace} ${taskset} timeout -k 1 600 ./${exec} ${args}
     done
 done
 
