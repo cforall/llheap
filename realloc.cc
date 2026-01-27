@@ -9,7 +9,7 @@ int main() {
 	struct S { size_t ca[DIM]; };
 	enum { SSize = sizeof( S ) };
 
-	printf( "ralloc dimension %d size %d ", DIM, SSize );
+	printf( "realloc dimension %d size %d ", DIM, SSize );
 
 	size_t copies = 0;
 	void * prev = nullptr;

@@ -10,7 +10,7 @@ int main() {
 	struct S { size_t ca[DIM]; };
 	enum { SSize = sizeof( S ) };
 
-	printf( "rallocsim dimension %d size %d\n", DIM, SSize );
+	printf( "reallocsim dimension %d size %d\n", DIM, SSize );
 
 	for ( size_t t = 0; t < 100; t += 1 ) { // not 100'000
 		S * sa = nullptr, * so = (S *)malloc( SSize );
@@ -29,4 +29,3 @@ int main() {
 // Local Variables: //
 // compile-command: "g++-11 -Wall -Wextra -g -O3 -DDIM=4 reallocsim.cc -c" //
 // End: //
-
