@@ -87,7 +87,7 @@ The following allocation features require including `llheap.h`.
 
 #### `void * resize( void * oaddr, size_t size )`
 equivalent to `realloc( oaddr, size )` to repurpose a prior allocation for a new type *without* copying the previous data into the new allocation or preserving zero fill or alignment (faster than `realloc`).
-The original storage is always freed for expansion even if the new allocation fails.
+If a new allocation fails, the original storage is always freed (unlike `realloc`).
 
 **Parameters:**
 
@@ -98,7 +98,7 @@ The original storage is always freed for expansion even if the new allocation fa
 
 #### `void * resizearray( void * oaddr, size_t dimension, size_t elemSize )`
 equivalent to `resize( oaddr, dimension * elemSize )` for a new array-type allocation *without* copying previous data into the new allocation or preserving zero fill or alignment (faster than `reallocarray`).
-The original storage is always freed for expansion even if the new allocation fails.
+If a new allocation fails, the original storage is always freed (unlike `realloc`).
 
 **Parameters:**
 
