@@ -1598,7 +1598,7 @@ extern "C" {
 		} // if
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
-		doFree( oaddr );								// free original storage
+		doFree( oaddr );								// always free original storage
 		return doMalloc( size STAT_ARG( HeapStatistics::RESIZE ) ); // create new area
 	} // resize
 
@@ -1672,7 +1672,7 @@ extern "C" {
 			naddr = memalignNoStats( oalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 		} // if
 
-	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing if nullptr is returned
+	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing => oaddr not overwritten or freed
 
 		header = HeaderAddr( naddr );					// new header
 		size_t alignment;
@@ -1788,7 +1788,7 @@ extern "C" {
 		} // if
 
 		// change size, DO NOT PRESERVE STICKY PROPERTIES.
-		doFree( oaddr );								// free original storage
+		doFree( oaddr );								// always free original storage
 		return memalignNoStats( nalignment, size STAT_ARG( HeapStatistics::ALIGNED_RESIZE ) ); // create new aligned area
 	} // aligned_resize
 
