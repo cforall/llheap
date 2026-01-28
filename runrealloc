@@ -34,8 +34,6 @@ else
     exit 1
 fi
 
-rm -rf core
-
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
     taskset="taskset --cpu-list 128"
@@ -73,14 +71,21 @@ for allocator in ${allocators} ; do
         # compile with preload => dynamic linking
 	#echo "${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread"
 	${CC} ${cflag} -DDIM=${dim} ${program}.cc -lpthread
+
 	if [ "${allocator}" != "glibc" ] ; then
 	    export LD_PRELOAD=${allocsdir}/${allocator}
 	    #echo "${LD_PRELOAD}"
 	fi
+
 	eval ${time} ${strace} ${taskset} timeout -k 1 600 ./${exec} ${args}
+
+	if [ "${allocator}" != "glibc" ] ; then # turn off allocator as some fail in shell
+	    unset LD_PRELOAD
+	fi
     done
 done
 
+rm -f core
 rm -f "${exec}"
 
 exit 0

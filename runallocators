@@ -8,8 +8,10 @@ if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
     allocators="glibc libllheap.so"
 else
-    allocsdir="${HOME}/software/allocators"
-    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libsnmalloc-minimal.so libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+#    allocsdir="${HOME}/software/allocators"
+    allocsdir="${HOME}/software/mimalloc-bench/extern"
+#    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
+    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/x86-64/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
 fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
@@ -56,11 +58,11 @@ fi
 #program="ownership"
 #program="larson"
 #program="cache"
-#program="bad_alloc"
-program="testgen"
+program="bad_alloc"
+#program="testgen"
 
 checksticky() {
-    eval ${time} ${strace} ${taskset} ./${exec}
+    eval ${time} ${strace} ${taskset} timeout -k 1 300 ./${exec}
 }
 
 larson() {
@@ -69,24 +71,23 @@ larson() {
     echo -n "\nlarson arguments ${args}\n"
     for CPU in 4 8 16 32 ; do
 	echo -n "larson procesors ${CPU}\n"
-	eval ${time} ${strace} ${perf} ${taskset} ./${exec} ${args} ${CPU}
+	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} ${args} ${CPU}
     done
 }
 
 ownership() {
     for CPU in 2 4 8 16 32 64 128 ; do
-	eval ${time} ${strace} ${perf} ${taskset} ./${exec} 30 ${CPU} 100
+	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} 30 ${CPU} 100
     done
 }
 
 bad_alloc() {
-    if [ "${allocator}" = "libhoard.so" ] ; then return ; fi
     ulimit -d 1000000
-    eval ${time} ${strace} ${perf} ${taskset} ./${exec}
+    eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 10 ./${exec}
 }
 
 for allocator in ${allocators} ; do
-    allocatorname=`echo ${allocator} | sed -e "s/lib\(.*\).so/\1/"`
+    allocatorname=`echo ${allocator} | sed -e "s@\([a-zA-Z0-9]*\)/.*.so@\1@"`
     echo -n "\n\n\"${allocatorname}\"\n"
 
     # compile without preload for checking => dynamic linking
@@ -99,24 +100,27 @@ for allocator in ${allocators} ; do
 #    fi
 
     # compile with preload => dynamic linking
-    # echo -n "${CC} ${cflag} ${program}.cc -lpthread\n\n"
+    #echo "${CC} ${cflag} ${program}.cc -lpthread"
     ${CC} ${cflag} ${program}.cc -lpthread
+    #echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
+
     if [ "${allocator}" != "glibc" ] ; then
-	# echo -n "$LD_PRELOAD=${allocsdir}/${allocator}\n\n"
 	export LD_PRELOAD=${allocsdir}/${allocator}
+	#echo "${LD_PRELOAD}"
     fi
 
-    # echo -n "ldd\n" ; ldd ./${exec} ; echo -n "\n"
-
-    # kill pid for a.out to terminate
     if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
 	eval ${program}
     else
-	eval ${time} ${strace} ${perf} ${taskset} ./${exec} ${args}
+	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} ${args}
+    fi
+
+    if [ "${allocator}" != "glibc" ] ; then # turn off allocator as some fail in shell
+	unset LD_PRELOAD
     fi
 done
 
+rm -f core
 rm -f "${exec}"
-rm -rf core		# some tests fail
 
 exit 0
