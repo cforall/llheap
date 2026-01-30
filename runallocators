@@ -4,7 +4,8 @@ exec=a.out
 hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
-if [ ${arch} = "x86_64" ] ; then arch="x86-64"; fi  # rpmalloc screws up here
+arch=`uname -m`
+if [ "${arch}" = "x86_64" ] ; then arch="x86-64"; fi  # rpmalloc screws up here
 
 if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
