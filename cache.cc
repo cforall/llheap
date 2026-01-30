@@ -55,7 +55,7 @@ int main() {
 	#endif // plg2
 	enum { expers = sizeof( THREADS ) / sizeof( THREADS[0] ) };
 
-	affinity( pthread_self(), 0 );
+//	affinity( pthread_self(), 0 );
 	
 	struct rusage rnow;
 	struct timeval tbegin, tnow;						// there is no real time in getrusage
@@ -83,7 +83,7 @@ int main() {
 		pthread_t thread[THREADS[exp]];					// thread[0] unused
 		for ( ssize_t tid = 1; tid < THREADS[exp]; tid += 1 ) { // N - 1 thread
 			if ( pthread_create( &thread[tid], NULL, worker, &arr[tid] ) < 0 ) abort();
-			affinity( thread[tid], tid );
+//			affinity( thread[tid], tid );
 		} // for
 	
 		worker( &arr[0]  );								// initialize thread runs one test
