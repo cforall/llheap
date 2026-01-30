@@ -98,7 +98,7 @@ int main() {
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( currTime(), start ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
 
-		for ( unsigned int t = 0; t < THREADS[t]; t += 1 ) {
+		for ( unsigned int t = 0; t < THREADS[exp]; t += 1 ) {
 			for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
 				delete arr[t][a];
 			} // for
