@@ -10,6 +10,7 @@
 static timespec currTime() {
 	timespec t;											// nanoseconds since UNIX epoch
 	if ( clock_gettime( CLOCK_THREAD_CPUTIME_ID, &t ) == -1 ) {
+//	if ( clock_gettime( CLOCK_REALTIME_COARSE, &t ) == -1 ) {
 		fprintf( stderr, "internal error, clock failed %d %s\n", errno, strerror( errno ) );
 	} // if
 	return t;
@@ -26,16 +27,15 @@ static inline double dur( timeval end, timeval start ) {
 } // dur
 
 
-enum { TIMES = 10'000'000'000, ASIZE = 3 }; // 30
+enum { TIMES = 1'000'000'000, ASIZE = 10 };
 
 void * worker( void * arg ) {
-	volatile size_t * arr = (size_t *)arg;
+	volatile size_t ** arr = (volatile size_t **)arg;
 	for ( size_t t = 0; t < TIMES / ASIZE; t += 1 ) {
 		for ( size_t r = 0; r < ASIZE; r += 1 ) {
-			arr[r] += r;								// reads and writes
+			*arr[r] += r;								// reads and writes
 		} // for
 	} // for
-	free( (void *)arr );								// cast away volatile
 	return nullptr;
 } // worker
 
@@ -53,7 +53,7 @@ int main() {
 	#else
 	unsigned int THREADS[] = { 4, 8, 16, 32 };
 	#endif // plg2
-	enum { threads = sizeof( THREADS ) / sizeof( THREADS[0] ) };
+	enum { expers = sizeof( THREADS ) / sizeof( THREADS[0] ) };
 
 	affinity( pthread_self(), 0 );
 	
@@ -63,24 +63,32 @@ int main() {
 	timeval puser = { 0, 0 }, psys = { 0, 0 };
 	gettimeofday( &tbegin, 0 );
 
-	printf( "read/writes %zd, array size: %zd\n", TIMES / ASIZE * ASIZE, ASIZE );
-	for ( unsigned int t = 0; t < threads; t += 1 ) {
+	printf( "read/writes %d, array size: %d\n", TIMES / ASIZE * ASIZE, ASIZE );
+	for ( unsigned int exp = 0; exp < expers; exp += 1 ) {
 		//printf( "Number of threads: %d\n", THREADS[t] );
-		printf( "%d ", THREADS[t] );
+		printf( "%d ", THREADS[exp] );
 
 		gettimeofday( &tnow, 0 );
 		getrusage( RUSAGE_SELF, &rnow );
 		start = currTime();
 
-		pthread_t thread[THREADS[t]];					// thread[0] unused
-		for ( ssize_t tid = 1; tid < THREADS[t]; tid += 1 ) { // N - 1 thread
-			if ( pthread_create( &thread[tid], NULL, worker, malloc( sizeof(size_t) * ASIZE ) ) < 0 ) abort();
+		size_t * arr[THREADS[exp]][ASIZE];
+		// Allocate by columns in an attempt make the objects contiguous in heap.
+		for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
+			for ( unsigned int t = 0; t < THREADS[t]; t += 1 ) {
+				arr[t][a] = new size_t;
+			} // for
+		} // for
+
+		pthread_t thread[THREADS[exp]];					// thread[0] unused
+		for ( ssize_t tid = 1; tid < THREADS[exp]; tid += 1 ) { // N - 1 thread
+			if ( pthread_create( &thread[tid], NULL, worker, &arr[tid] ) < 0 ) abort();
 			affinity( thread[tid], tid );
 		} // for
 	
-		worker( malloc( sizeof(size_t) * ASIZE ) );		// initialize thread runs one test
+		worker( &arr[0]  );								// initialize thread runs one test
 
-		for ( unsigned int tid = 1; tid < THREADS[t]; tid += 1 ) {
+		for ( unsigned int tid = 1; tid < THREADS[exp]; tid += 1 ) {
 			if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
 		} // for
 
@@ -89,9 +97,15 @@ int main() {
 		printf( "%.2fu %.2fs %.2fr %ldkb\n",
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( currTime(), start ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
+
+		for ( unsigned int t = 0; t < THREADS[t]; t += 1 ) {
+			for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
+				delete arr[t][a];
+			} // for
+		} // for
 	} // for
 } // main
 
 // Local Variables: //
-// compile-command: "g++-11 -Wall -Wextra -g -O3 cache.cc -pthread" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 cache.cc -pthread" //
 // End: //
