@@ -4,6 +4,7 @@ exec=a.out
 hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
+arch=`uname -m`
 if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
     allocators="glibc libllheap.so"
@@ -11,7 +12,7 @@ else
 #    allocsdir="${HOME}/software/allocators"
     allocsdir="${HOME}/software/mimalloc-bench/extern"
 #    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
-    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/x86-64/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
+    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/${arch}/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
 fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
