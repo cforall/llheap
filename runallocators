@@ -37,7 +37,7 @@ fi
 
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
-    taskset="taskset --cpu-list 128"
+    taskset="taskset --cpu-list 128-256"
 elif [ "${hostname}" = "java" ] ; then
     taskset="taskset --cpu-list 0"
 elif [ "${hostname}" = "prolog" ] ; then
