@@ -37,15 +37,13 @@ fi
 
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
-    taskset="taskset --cpu-list 128-256"
+    taskset="taskset --cpu-list 128-256"  # upper socket
 elif [ "${hostname}" = "java" ] ; then
-    taskset="taskset --cpu-list 0"
+    taskset=
 elif [ "${hostname}" = "prolog" ] ; then
-    taskset="taskset --cpu-list 0"
+    taskset=
 elif [ "${hostname}" = "algol" ] ; then
-    taskset="taskset --cpu-list 0"
-elif [ "${hostname}" = "jax" ] ; then
-    taskset="taskset --cpu-list 24"
+    taskset=
 else
     echo -n "\nUsage error unknown machine name "${hostname}."\n"
     exit 1
