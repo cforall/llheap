@@ -17,7 +17,7 @@ int main() {
 	try {
 		for ( ;; ) pass( new char[50] );				// unbounded allocation
 	} catch( const bad_alloc & e ) {
-		cout << e.what() << endl;
+		cout << e.what() << ' ' << (errno == ENOMEM) << endl;
 	}
 }
 
