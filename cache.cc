@@ -75,7 +75,7 @@ int main() {
 		size_t * arr[THREADS[exp]][ASIZE];
 		// Allocate by columns in an attempt make the objects contiguous in heap.
 		for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
-			for ( unsigned int t = 0; t < THREADS[t]; t += 1 ) {
+			for ( unsigned int t = 0; t < THREADS[exp]; t += 1 ) {
 				arr[t][a] = new size_t;
 			} // for
 		} // for
