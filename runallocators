@@ -50,15 +50,16 @@ else
     exit 1
 fi
 
-#strace="strace -cfq"
+#strace='strace -cfq'
 #time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
-#perf="perf stat -B -e cache-references,cache-misses a.out"
+perf='perf stat -B -e cache-references,cache-misses'
+#timeout='timeout -k 1 600'
 
 #program="checksticky"
 #program="ownership"
 #program="larson"
-#program="cache"
-program="bad_alloc"
+program="cache"
+#program="bad_alloc"
 #program="testgen"
 
 checksticky() {
@@ -71,13 +72,13 @@ larson() {
     echo -n "\nlarson arguments ${args}\n"
     for CPU in 4 8 16 32 ; do
 	echo -n "larson procesors ${CPU}\n"
-	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} ${args} ${CPU}
+	eval ${time} ${strace} ${perf} ${taskset} ${timeout} ./${exec} ${args} ${CPU}
     done
 }
 
 ownership() {
     for CPU in 2 4 8 16 32 64 128 ; do
-	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} 30 ${CPU} 100
+	eval ${time} ${strace} ${perf} ${taskset} ${timeout} ./${exec} 30 ${CPU} 100
     done
 }
 
@@ -112,7 +113,7 @@ for allocator in ${allocators} ; do
     if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
 	eval ${program}
     else
-	eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 300 ./${exec} ${args}
+	eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
     fi
 
     if [ "${allocator}" != "glibc" ] ; then # turn off allocator as some fail in shell
