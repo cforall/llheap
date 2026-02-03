@@ -90,14 +90,14 @@ extern "C" size_t malloc_unfreed() {					// llheap only
 }
 
 int main( int argc, char * argv[] ) {
-	const char * lang = getenv( "LANG" );				// may cause memory leak
-	try {
-		locale loc( lang );
-		cout.imbue( loc );								// print numbers with separators (',')
-	} catch( runtime_error & ) {
-		cerr << "Invalid locale language name \"" << lang << "\"" << endl;
-		exit( EXIT_FAILURE );
-	} // try
+	// const char * lang = getenv( "LANG" );				// may cause memory leak
+	// try {
+	// 	locale loc( lang );
+	// 	cout.imbue( loc );								// print numbers with separators (',')
+	// } catch( runtime_error & ) {
+	// 	cerr << "Invalid locale language name \"" << lang << "\"" << endl;
+	// 	exit( EXIT_FAILURE );
+	// } // try
 
 	enum {
 		Dduration = 30,									// default duration (seconds)
@@ -143,7 +143,7 @@ int main( int argc, char * argv[] ) {
 	pthread_t workers[Threads];
 	for ( size_t i = 0; i < Threads; i += 1 ) {
 		if ( pthread_create( &workers[i], NULL, worker, (void *)i ) < 0 ) abort();
-		affinity( workers[i], i );
+//		affinity( workers[i], i );
 	} // for
 
 	sleep( Duration );
@@ -165,13 +165,13 @@ int main( int argc, char * argv[] ) {
 	decltype( +times[0] ) total = statistics( Threads, times, avg, std, rstd );
 	cout << fixed << total << setprecision(0) << ' ' << avg << ' ' << std << ' ' << setprecision(1) << rstd << "% ";
 
-	#if defined( HYPERAFF )
-	cout << "HYPERAFF affinity" << endl;
-	#elif defined( LINEARAFF )
-	cout << "LINEARAFF affinity" << endl;
-	#else
-		#error no affinity specified
-	#endif
+//	#if defined( HYPERAFF )
+//	cout << "HYPERAFF affinity" << endl;
+//	#elif defined( LINEARAFF )
+//	cout << "LINEARAFF affinity" << endl;
+//	#else
+//		#error no affinity specified
+//	#endif
 } // main
 
 // g++-10 -Wall -Wextra -g -O3 -D`hostname` ownership.cc libllheap.so -lpthread -Wl,-rpath=/u/pabuhr/heap -L/u/pabuhr/heap
