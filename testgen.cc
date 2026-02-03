@@ -48,7 +48,7 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 static pthread_barrier_t barrier;
 
-enum : uint64_t { TIMES = 5'000'000'000, TIMES2 = TIMES / 5'000 };
+enum : uint64_t { TIMES = 1'000'000'000, TIMES2 = TIMES / 5'000 };
 #define FIXED 42
 #define FIXED2 1'048'576
 #define GROUP1 100
@@ -59,9 +59,6 @@ static double ** eresults;								// store experimental results
 //#define RANDOM
 #ifdef RANDOM
 int rgroup1[GROUP1], rgroup2[GROUP2];
-enum { EXPERIMENTS = 17 + 5 };
-#else
-enum { EXPERIMENTS = 17 };
 #endif // RANDOM
 
 #define PRINT_DOTS
@@ -72,7 +69,11 @@ enum { EXPERIMENTS = 17 };
 #endif // PRINT
 
 
+#define MALLOC
+//#define MMAP
+
 static const char * titles[] = {
+	#ifdef MALLOC
 	"x = malloc( 0 )/free( x )\t\t\t\t",
 	"free( nullptr )\t\t\t\t\t\t",
 	"alternate malloc/free " xstr(FIXED) " bytes\t\t\t\t",
@@ -92,12 +93,18 @@ static const char * titles[] = {
 	"rgroup " xstr(GROUP1) " malloc/reverse-free 1-"  xstr(GROUP1) " bytes\t\t",
 	"rgroup " xstr(GROUP2) " malloc/reverse-free 1-"  xstr(GROUP2) " bytes\t\t",
 	#endif // RANDOM
+	#endif // MALLOC
+	#ifdef MMAP
 	"mmap alternate malloc/free " xstr(FIXED2) " bytes\t\t",
 	"mmap group " xstr(GROUP1) " malloc/free " xstr(FIXED2) " bytes\t\t",
 	"mmap group " xstr(GROUP2) " malloc/free " xstr(FIXED2) " bytes\t\t",
 	"mmap group " xstr(GROUP1) " malloc/reverse-free " xstr(FIXED2) " bytes\t",
 	"mmap group " xstr(GROUP2) " malloc/reverse-free " xstr(FIXED2) " bytes\t",
+	#endif // MMAP
 };
+
+enum { EXPERIMENTS = sizeof( titles ) / sizeof( titles[0] ) };
+
 
 timeval puser = { 0, 0 }, psys = { 0, 0 };
 
@@ -114,7 +121,7 @@ static void * worker( void * arg ) {
 
 	// sbrk storage
 
-#if 1
+#ifdef MALLOC
 	gettimeofday( &tbegin, 0 );
 
 	// malloc/free 0/null pointer
@@ -410,9 +417,9 @@ static void * worker( void * arg ) {
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
 	} // if
-#endif // 0
+#endif // MALLOC
 
-#if 1
+#ifdef MMAP
 	// mmap storage
 
 	gettimeofday( &tbegin, 0 );
@@ -509,7 +516,7 @@ static void * worker( void * arg ) {
 				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( tnow, tbegin ), rnow.ru_maxrss );
 		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
 	} // if
-#endif // 0
+#endif // MMAP
 	return nullptr;
 } // worker
 
@@ -535,9 +542,11 @@ extern "C" size_t malloc_unfreed() { return 6324; }		// printf(1024)/setlocale(4
 
 int main() {
 	setlocale( LC_NUMERIC, getenv( "LANG" ) );			// separators in numbers
+	#ifdef MMAP
 	if ( mallopt( M_MMAP_THRESHOLD, 512 * 1024 ) == 0 ) { // smaller mmap crossover
 		printf( "M_MMAP_THRESHOLD unsupported\n" );
 	} // if
+	#endif //  MMAP
 
 	#ifdef RANDOM
 	for ( uint64_t i = 0; i < GROUP1; i += 1 ) {
@@ -575,17 +584,19 @@ int main() {
 		} // for
 	} // for
 
-	#if defined( HYPERAFF )
-	printf( "HYPERAFF affinity\n" );
-	#elif defined( LINEARAFF )
-	printf( "LINEARAFF affinity\n" );
-	#else
-		#error no affinity specified
-	#endif
+//	#if defined( HYPERAFF )
+//	printf( "HYPERAFF affinity\n" );
+//	#elif defined( LINEARAFF )
+//	printf( "LINEARAFF affinity\n" );
+//	#else
+//		#error no affinity specified
+//	#endif
 	printf( "sbrk area %lu times\n", TIMES );
+	#ifdef MMAP
 	printf( "mmap area %lu time\n\n", TIMES2 );
+	#endif // MMAP
 
-	affinity( pthread_self(), 0 );
+//	affinity( pthread_self(), 0 );
 	
 	for ( unsigned int t = 0; t < threads; t += 1 ) {
 		printf( "Number of threads: %d\n", THREADS[t] );
@@ -595,7 +606,7 @@ int main() {
 		pthread_t thread[THREADS[t]];					// thread[0] unused
 		for ( uintptr_t tid = 1; tid < THREADS[t]; tid += 1 ) { // N - 1 thread
 			if ( pthread_create( &thread[tid], NULL, worker, (void *)tid ) < 0 ) abort();
-			affinity( thread[tid], tid );
+//			affinity( thread[tid], tid );
 		} // for
 	
 		worker( 0 );									// initialize thread runs one test
