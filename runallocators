@@ -39,7 +39,8 @@ fi
 
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
-    taskset="taskset --cpu-list 128-256"  # upper socket
+#    taskset="taskset --cpu-list 128-256"  # upper socket
+    taskset=
 elif [ "${hostname}" = "java" ] ; then
     taskset=
 elif [ "${hostname}" = "prolog" ] ; then
@@ -52,16 +53,16 @@ else
 fi
 
 #strace='strace -cfq'
-#time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
-perf='perf stat -B -e cache-references,cache-misses'
-#timeout='timeout -k 1 600'
+time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
+#perf='perf stat -B -e cache-references,cache-misses'
+timeout='timeout -k 1 3600'
 
 #program="checksticky"
 #program="ownership"
 #program="larson"
-program="cache"
+#program="cache"
 #program="bad_alloc"
-#program="testgen"
+program="testgen"
 
 checksticky() {
     eval ${time} ${strace} ${taskset} timeout -k 1 300 ./${exec}
