@@ -9,7 +9,7 @@ if [ "${arch}" = "x86_64" ] ; then arch="x86-64"; fi  # rpmalloc screws up here
 
 if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
-    allocators="glibc libllheap.so"
+    allocators="libllheap-stats.so"
 else
 #    allocsdir="${HOME}/software/allocators"
     allocsdir="${HOME}/software/mimalloc-bench/extern"
@@ -53,19 +53,25 @@ else
 fi
 
 #strace='strace -cfq'
-time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
+#time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #perf='perf stat -B -e cache-references,cache-misses'
-timeout='timeout -k 1 3600'
+timeout='timeout -k 1 300'
 
 #program="checksticky"
-#program="ownership"
-#program="larson"
-#program="cache"
+program="checkheader"
 #program="bad_alloc"
-program="testgen"
+#program="larson"
+#program="ownership"
+#program="falsesharing"
+#program="cache"
+#program="delay"
 
 checksticky() {
-    eval ${time} ${strace} ${taskset} timeout -k 1 300 ./${exec}
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
+}
+
+checkheader() {
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
 }
 
 larson() {
@@ -87,6 +93,10 @@ ownership() {
 bad_alloc() {
     ulimit -d 1000000
     eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 10 ./${exec}
+}
+
+delay() {
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
 }
 
 for allocator in ${allocators} ; do
@@ -112,7 +122,7 @@ for allocator in ${allocators} ; do
 	#echo "${LD_PRELOAD}"
     fi
 
-    if [ "${program}" != "testgen" -a "${program}" != "cache" ] ; then
+    if [ "${program}" != "cache" ] ; then
 	eval ${program}
     else
 	eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
