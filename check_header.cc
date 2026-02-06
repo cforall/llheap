@@ -1,16 +1,13 @@
 // 
-// Copyright (C) Peter A. Buhr and Dave Dice 2026
-// 
-// checkheader.cc -- 
+// checkheader.cc -- Check if memory allocator is using a header for each allocation.
 // 
 // Author           : Peter A. Buhr
 // Created On       : Thu Feb  5 20:50:12 2026
 // Last Modified By : Peter A. Buhr
-// Last Modified On : Thu Feb  5 20:51:29 2026
-// Update Count     : 2
+// Last Modified On : Thu Feb  5 22:19:28 2026
+// Update Count     : 3
 // 
 
-// Test if a memory allocator is using a header for each allocation.
 
 #include <stdlib.h>
 #include <stdio.h>

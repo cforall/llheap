@@ -1,3 +1,13 @@
+// 
+// checksticky.cc -- Check if supports sticky zero-fill and/or alignment properties.
+// 
+// Author           : Peter A. Buhr
+// Created On       : Thu Feb  5 22:20:10 2026
+// Last Modified By : Peter A. Buhr
+// Last Modified On : Thu Feb  5 22:21:14 2026
+// Update Count     : 1
+// 
+
 #include <stdio.h>										// I/O
 #include <stdlib.h>										// abort
 #include <malloc.h>										// memalign
