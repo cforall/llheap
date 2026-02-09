@@ -81,7 +81,7 @@ extern "C" void __assert_fail( const char assertion[], const char file[], unsign
 
 #ifdef __DEBUG__
 static bool signal_p = false;
-static void backtrace( int start );						// forward
+static void Backtrace( int start );						// forward
 #endif // __DEBUG__
 
 static void abort( const char fmt[], ... ) __attribute__(( format(printf, 1, 2), __nothrow__, __noreturn__ ));
@@ -98,7 +98,7 @@ static void abort( const char fmt[], ... ) {			// overload real abort
 
 	va_end( args );
 	#ifdef __DEBUG__
-	backtrace( signal_p ? 4 : 2 );
+	Backtrace( signal_p ? 4 : 2 );
 	#endif // __DEBUG__
 	abort();											// call the real abort
 	// CONTROL NEVER REACHES HERE!
@@ -197,15 +197,16 @@ static inline __attribute__((always_inline)) void spin_release( volatile SpinLoc
 #include <execinfo.h>									// backtrace, backtrace_symbols
 #include <cxxabi.h>										// __cxa_demangle
 
-static void backtrace( int start ) {
+static void Backtrace( int start ) {
 	enum {
 		Frames = 50,									// maximum number of stack frames
-		Last = 2,										// skip last N stack frames
+		Last = 3,										// skip last N stack frames
 	};
 
 	void * array[Frames];
-	size_t size = ::backtrace( array, Frames );
-	char ** messages = ::backtrace_symbols( array, size ); // does not demangle names
+	// When backtrace is called from malloc/free error, there is a recursion, as more calls to malloc and free occur.
+	size_t size = backtrace( array, Frames );
+	char ** messages = backtrace_symbols( array, size ); // does not demangle names
 	char helpText[256];
 	int len;
 
@@ -254,7 +255,7 @@ static void backtrace( int start ) {
 	} // for
 
 	free( messages );
-} // backtrace
+} // Backtrace
 #endif // __DEBUG__
 
 
