@@ -7,8 +7,8 @@ ifeq ($(shell uname -p),aarch64)		# ARM processor ?
     endif
 endif
 
-LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-asynchronous-unwind-tables \
-	-fno-stack-check -fno-unwind-tables -fno-rtti #
+# prevents stack trace -fno-asynchronous-unwind-tables
+LLHEAPFLAGS := -fno-exceptions -fno-stack-protector -fno-stack-check -fno-unwind-tables -fno-rtti
 TIME := /usr/bin/time -f "%Uu %Ss %er %Mkb"
 
 MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}	# makefile name
