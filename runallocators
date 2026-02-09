@@ -9,7 +9,7 @@ if [ "${arch}" = "x86_64" ] ; then arch="x86-64"; fi  # rpmalloc screws up here
 
 if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
-    allocators="libllheap-stats.so"
+    allocators="libllheap.so"
 else
 #    allocsdir="${HOME}/software/allocators"
     allocsdir="${HOME}/software/mimalloc-bench/extern"
@@ -55,16 +55,16 @@ fi
 #strace='strace -cfq'
 #time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #perf='perf stat -B -e cache-references,cache-misses'
-timeout='timeout -k 1 300'
+timeout='timeout -k 1 3600'
 
-#program="checksticky"
-program="checkheader"
-#program="bad_alloc"
+#program="check_sticky"
+#program="check_header"
+#program="check_badalloc"
 #program="larson"
 #program="ownership"
 #program="falsesharing"
 #program="cache"
-#program="delay"
+program="latency"
 
 checksticky() {
     eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
@@ -95,7 +95,7 @@ bad_alloc() {
     eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 10 ./${exec}
 }
 
-delay() {
+latency() {
     eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
 }
 
