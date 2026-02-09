@@ -102,7 +102,6 @@ static const char * titles[] = {
 	"mmap group " xstr(GROUP2) " malloc/reverse-free " xstr(FIXED2) " bytes\t",
 	#endif // MMAP
 };
-
 enum { EXPERIMENTS = sizeof( titles ) / sizeof( titles[0] ) };
 
 
@@ -684,5 +683,5 @@ int main() {
 // g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread ${HOME}/software/allocators/libllheap.so -Wl,-rpath=${HOME}/software/allocators
 
 // Local Variables: //
-// compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread libllheap.o" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread libllheap.o" //
 // End: //
