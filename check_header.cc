@@ -1,13 +1,6 @@
 // 
-// checkheader.cc -- Check if memory allocator is using a header for each allocation.
+// Check if allocator is using a header for each allocation, and if so, print header size.
 // 
-// Author           : Peter A. Buhr
-// Created On       : Thu Feb  5 20:50:12 2026
-// Last Modified By : Peter A. Buhr
-// Last Modified On : Thu Feb  5 22:19:28 2026
-// Update Count     : 3
-// 
-
 
 #include <stdlib.h>
 #include <stdio.h>
