@@ -680,7 +680,7 @@ int main() {
 
 // repeat 3 \time -f "%Uu %Ss %er %Mkb" a.out
 
-// g++-14 -Wall -Wextra -g -O3 -D`hostname` testgen.cc -lpthread ${HOME}/software/allocators/libllheap.so -Wl,-rpath=${HOME}/software/allocators
+// g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread ${HOME}/software/allocators/libllheap.so -Wl,-rpath=${HOME}/software/allocators
 
 // Local Variables: //
 // compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread libllheap.o" //
