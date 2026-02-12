@@ -743,7 +743,7 @@ void * worker( void * ) {
 		} // for
 		free( area );
 	} // for
-#endif // 0
+
 	printf( "worker %lu successful completion\n", pthread_self() );
 	return nullptr;
 } // worker
