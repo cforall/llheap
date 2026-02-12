@@ -1021,13 +1021,13 @@ static inline __attribute__((always_inline)) bool setMmapStart( size_t value ) {
 #define HeaderAddr( addr ) ((Heap::Storage::Header *)( (char *)addr - sizeof(Heap::Storage) ))
 #define RealHeader( header ) ((Heap::Storage::Header *)((char *)header - header->kind.fake.offset))
 
-// <-------<<--------------------- dsize ---------------------->> bsize (bucket size)
+// <-hsize-<<--------------------- dsize ---------------------->> bsize (bucket size)
 // |header |addr
 //==================================================================================
 //               alignment/offset |
 // <------------------------------<<---------- dsize --------->>> bsize (bucket size)
 //                   |fake-header |addr
-#define DataStorage( bsize, addr, header ) (bsize - ( (char *)addr - (char *)header ))
+#define DataSize( bsize, addr, header ) (bsize - ( (char *)addr - (char *)header ))
 
 
 #ifdef __DEBUG__
@@ -1212,7 +1212,9 @@ static void * manager_extend( size_t size ) {
 
 static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
 	BOOT_HEAP_MANAGER();
-	LLDEBUG( debugprt( "\tdoMalloc " ) );
+	Heap * heap = heapManager;							// optimization, as heapManager is thread_local
+
+	LLDEBUG( debugprt( "\tdoMalloc heap %p size %zd ", heap, size ) );
 
 	#ifdef __NULL_0_ALLOC__
 	if ( UNLIKELY( size == 0 ) ) { STAT_0_CNT( STAT_NAME ); return nullptr; }
@@ -1229,7 +1231,6 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	// The user request must include space for the header allocated along with the storage block and is a multiple of
 	// the alignment size.
 	size_t tsize = size + sizeof(Heap::Storage);		// total request space needed
-	Heap * heap = heapManager;							// optimization, as heapManager is thread_local
 
 	#ifdef __STATISTICS__
 	if ( UNLIKELY( size == 0 ) ) {						// malloc( 0 ) ?
@@ -1320,8 +1321,9 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		} // if
 
 		block->header.kind.real.home = freeHead;		// pointer back to free list of apropriate size
+		LLDEBUG( debugprt( "bucket %zd ", freeHead->blockSize ) );
 	} else {											// large size => mmap
-		LLDEBUG( debugprt( "mmapp " ) );
+		LLDEBUG( debugprt( "mmap " ) );
 		#ifdef __DEBUG__
 		// Recheck because of minimum allocation size (page size).
 		if ( UNLIKELY( size > ULONG_MAX - heapMaster.pageSize ) ) { errno = ENOMEM; return nullptr; }
@@ -1357,7 +1359,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 	void * addr = &(block->data);						// adjust off header to user bytes
 	assert( ((uintptr_t)addr & (__ALIGN__ - 1)) == 0 ); // minimum alignment ?
 
-	LLDEBUG( debugprt( "%p %zd %zd %p\n", heap, size, tsize, addr ) );
+	LLDEBUG( debugprt( "tsize %zd addr %p\n", tsize, addr ) );
 
 	return addr;
 } // doMalloc
@@ -1385,7 +1387,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 	bool mapped = headers( "free", addr, header, freeHead, tsize, alignment );
 
-	LLDEBUG( debugprt( "\tdoFree %p %zd %p\n", heap, tsize, addr ) );
+	LLDEBUG( debugprt( "\tdoFree heap %p addr %p tsize %zd\n", heap, addr, tsize ) );
 
 	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 	size_t size = header->kind.real.size;				// optimization
@@ -1584,7 +1586,7 @@ extern "C" {
 		size_t bsize, oalignment;
 		headers( "resize", oaddr, header, freeHead, bsize, oalignment );
 
-		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
+		size_t odsize = DataSize( bsize, oaddr, header ); // data storage available in bucket
 		// same size, DO NOT PRESERVE STICKY PROPERTIES.
 		if ( oalignment == __ALIGN__ && size <= odsize && odsize <= size * 2 ) { // allow 50% wasted storage for smaller size
 			ClearZeroFillBit( header );					// no alignment and turn off 0 fill
@@ -1613,14 +1615,14 @@ extern "C" {
 
 	// Same as resize() but the contents are unchanged in the range from the start of the region up to the minimum of
 	// the old and new sizes.
-	void * realloc( void * oaddr, size_t size ) {
-		LLDEBUG( debugprt( "realloc %p %zd ", oaddr, size ) );
+	void * realloc( void * oaddr, size_t nsize ) {
+		LLDEBUG( debugprt( "realloc oaddr:%p nsize:%zd ", oaddr, nsize ) );
 
-	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( size )
-			return doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) );
+	  if ( UNLIKELY( oaddr == nullptr ) ) {				// => malloc( nsize )
+			return doMalloc( nsize STAT_ARG( HeapStatistics::REALLOC ) );
 		} // if
 
-	  if ( UNLIKELY( size == 0 ) ) {
+	  if ( UNLIKELY( nsize == 0 ) ) {
 			STAT_0_CNT( HeapStatistics::REALLOC );
 			doFree( oaddr );
 			return nullptr;
@@ -1631,32 +1633,34 @@ extern "C" {
 		size_t bsize, oalignment;
 		headers( "realloc", oaddr, header, freeHead, bsize, oalignment );
 
-		size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
+		size_t odsize = DataSize( bsize, oaddr, header ); // data storage available in bucket
 		size_t osize = header->kind.real.size;			// old allocation size
 		bool ozfill = ZeroFillBit( header );			// old allocation zero filled
 
-	  if ( UNLIKELY( size <= odsize ) && odsize <= size * 2 ) { // allow up to 50% wasted storage
-			LLDEBUG( debugprt( "reduce " ) );
+	  if ( UNLIKELY( nsize <= odsize ) && odsize <= nsize * 2 ) { // allow up to 50% wasted storage
+			LLDEBUG( debugprt( "reduce size " ) );
 			#ifdef __DEBUG__
-			heapManager->allocUnfreed += size - header->kind.real.size; // adjustment off the size difference
+			heapManager->allocUnfreed += nsize - header->kind.real.size; // adjustment off the size difference
 			#endif // __DEBUG__
-			header->kind.real.size = size;				// reset allocation size
-	  		if ( UNLIKELY( ozfill ) && size > osize ) {	// previous request zero fill and larger ?
+			header->kind.real.size = nsize;				// reset allocation size
+	  		if ( UNLIKELY( ozfill ) && nsize > osize ) { // previous request zero fill and larger ?
 				#ifdef __STATISTICS__
 				heapManager->stats.realloc_0_fill += 1;
 				#endif // __STATISTICS__
-	  			memset( (char *)oaddr + osize, '\0', size - osize ); // initialize added storage
+				LLDEBUG( debugprt( "zero fill " ) );
+	  			memset( (char *)oaddr + osize, '\0', nsize - osize ); // initialize added storage
 	  		} // if
 			#ifdef __STATISTICS__
 			heapManager->stats.realloc_calls += 1;
 			heapManager->stats.realloc_smaller += 1;
 			#endif // __STATISTICS__
+			LLDEBUG( debugprt( "oaddr %p odsize %zd osize %zd nsize %zd bsize %zd\n", oaddr, odsize, osize, nsize, bsize ) );
 			return oaddr;
 		} // if
 
 		// change size and copy old content to new storage
 
-		LLDEBUG( debugprt( "change " ) );
+		LLDEBUG( debugprt( "increase size from %zd to %zd ", osize, nsize ) );
 
 		#ifdef __STATISTICS__
 		heapManager->stats.realloc_copy += 1;
@@ -1664,13 +1668,13 @@ extern "C" {
 
 		void * naddr;
 		if ( LIKELY( oalignment <= __ALIGN__ ) ) {		// previous request not aligned ?
-			naddr = doMalloc( size STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
+			naddr = doMalloc( nsize STAT_ARG( HeapStatistics::REALLOC ) ); // create new area
 		} else {
 			LLDEBUG( debugprt( "aligned " ) );
 			#ifdef __STATISTICS__
 			heapManager->stats.realloc_align += 1;
 			#endif // __STATISTICS__
-			naddr = memalignNoStats( oalignment, size STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
+			naddr = memalignNoStats( oalignment, nsize STAT_ARG( HeapStatistics::REALLOC ) ); // create new aligned area
 		} // if
 
 	if ( UNLIKELY( naddr == nullptr ) ) return nullptr;	// stop further processing => oaddr not overwritten or freed
@@ -1680,18 +1684,19 @@ extern "C" {
 		fakeHeader( header, alignment );				// could have a fake header
 
 		// To preserve prior fill, the entire bucket must be copied versus the size.
-		LLDEBUG( debugprt( "\tcopy / free %p %p %zd %zd %zd", naddr, oaddr, osize, size, Min( osize, size )) );
-		memcpy( naddr, oaddr, Min( osize, size ) );		// copy bytes
+		LLDEBUG( debugprt( "\tcopy / free oddr %p naddr %p osize %zd nsize %zd csize %zd odsize %zd",
+						   oaddr, naddr, osize, nsize, Min( osize, nsize ), odsize ) );
+		memcpy( naddr, oaddr, Min( osize, nsize ) );	// copy bytes
 		doFree( oaddr );								// free previous storage
 
 		if ( UNLIKELY( ozfill ) ) {						// previous request zero fill ?
 			MarkZeroFilledBit( header );				// mark new request as zero filled
-			if ( size > osize ) {						// previous request larger ?
+			if ( nsize > osize ) {						// previous request larger ?
 				#ifdef __STATISTICS__
 				heapManager->stats.realloc_0_fill += 1;
 				#endif // __STATISTICS__
 				LLDEBUG( debugprt( "zero fill " ) );
-				memset( (char *)naddr + osize, '\0', size - osize ); // initialize added storage
+				memset( (char *)naddr + osize, '\0', nsize - osize ); // initialize added storage
 			} // if
 		} // if
 		return naddr;
@@ -1768,7 +1773,7 @@ extern "C" {
 				Heap::FreeHeader * freeHead;
 				size_t bsize;
 				headers( "aligned_resize", oaddr, header, freeHead, bsize, oalignment );
-				size_t odsize = DataStorage( bsize, oaddr, header ); // data storage available in bucket
+				size_t odsize = DataSize( bsize, oaddr, header ); // data storage available in bucket
 
 				if ( size <= odsize && odsize <= size * 2 ) { // allow 50% wasted data storage
 					HeaderAddr( oaddr )->kind.fake.alignment = MarkAlignmentBit( nalignment ); // update alignment (could be the same)
@@ -2042,7 +2047,16 @@ extern "C" {
 		size_t bsize, alignment;
 
 		headers( "malloc_usable_size", addr, header, freeHead, bsize, alignment );
-		return DataStorage( bsize, addr, header );		// data storage in bucket
+		size_t dsize = DataSize( bsize, addr, header ); // data storage available in bucket
+		// SKULLDUGGERY: Application redis (and possibly others) uses this result directly to access all the storage
+		// without calling realloc. This usage is undefined because realloc may only copy the allocated storage rather
+		// than the usable storage. To make this work for bad applications, it is assumed calling malloc_usable_size
+		// means subsequently undefined usage, so the allocated storage is reset to the usable storage. Hence,
+		// downstream calls to realloc on this storage copy the usable rather than allocated storage. Putting the trick
+		// here means realloc only copies the smaller allocated storage when a program does not use malloc_usable_size.
+		header->kind.real.size = dsize;
+		LLDEBUG( debugprt( "malloc_usable_size addr %p bucket %zd allocated %zd dsize %zd\n", addr, bsize, header->kind.real.size, dsize ) );
+		return dsize;
 	} // malloc_usable_size
 
 
