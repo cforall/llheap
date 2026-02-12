@@ -51,8 +51,8 @@ libllheap-stats-debug.so : llheap.cc llheap.h
 clean :
 	rm -f ${OBJECTS} a.out
 
-# testllheap.cc
-testpgm := testgen.cc
+testpgm := latency.cc # testllheap.cc
+testpgm := $(strip ${testpgm})
 
 test : ${OBJECTS}
 #	set -x
