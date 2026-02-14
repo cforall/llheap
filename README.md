@@ -322,3 +322,9 @@ Can be changed dynamically with `mallopt` and `M_MMAP_THRESHOLD`.
 return the amount subtracted from the global unfreed program storage to adjust for unreleased storage from routines like `printf` (debug only).
 
 **Return:** new subtraction amount and called by `malloc_stats`.
+
+### New backtrace
+
+When an application fails, a stack backtrace is printed for debug.
+Use compilation flag `-rdynamic` to get symbolic names printed.
+
