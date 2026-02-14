@@ -8,15 +8,15 @@ static inline void * pass( void * v ) {					// prevent eliding, cheaper than vol
 
 int main() {
 	struct S { size_t ca[DIM]; };
-	enum { SSize = sizeof( S ) };
+	enum { Ssize = sizeof( S ) };
 
-	printf( "reallocsim dimension %d size %d\n", DIM, SSize );
+	printf( "reallocsim dimension %d size %d\n", DIM, Ssize );
 
 	for ( size_t t = 0; t < 100; t += 1 ) { // not 100'000
-		S * sa = nullptr, * so = (S *)malloc( SSize );
-		for ( size_t i = 0, s = SSize; i < 10'000; i += 1, s += SSize ) {
+		S * sa = nullptr, * so = (S *)malloc( Ssize );
+		for ( size_t i = 0, s = Ssize; i < 10'000; i += 1, s += Ssize ) {
 			sa = (S *)pass( malloc( s ) );				// simulate realloc
-			memcpy( sa, so, s - SSize );				// so one smaller
+			memcpy( sa, so, s - Ssize );				// so one smaller
 			sa[i].ca[0] = i;
 			free( so );
 			so = sa;
