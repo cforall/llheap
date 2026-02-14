@@ -13,7 +13,7 @@ int main() {
 	// *ip = 3;
 	// **** Error **** Segment fault at memory location 0xfffee0.
 	// Possible cause is reading outside the address space or writing to a protected area within the address space with an invalid pointer or subscript.
-	
+
 	// int ** ipa = (int **)malloc( 10 * sizeof( *ipa ) ); // array of 10 pointers
 	// free( ipa ); // free array and srub array with 0xff
 	// *ipa[3] += 1; // reference scrubbed storage forcing segment fault
@@ -54,5 +54,5 @@ int main() {
 }
 
 // Local Variables: //
-// compile-command: "g++-14 -Wall -Wextra -g -O3 check_debugging.cc libllheap-debug.o -lpthread -D`hostname`" //
+// compile-command: "g++-14 -Wall -g -D`hostname` check_debugging.cc libllheap-debug.o -lpthread -rdynamic" //
 // End: //
