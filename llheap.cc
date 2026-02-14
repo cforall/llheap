@@ -40,18 +40,18 @@
 #define TLSMODEL
 #endif // TLS
 
+#if __WORDSIZE == 32
+#define UNDEFINED 0xffff'ffff
+#else
+#define UNDEFINED 0xffff'ffff'ffff'ffff
+#endif // __WORDSIZE == 32
+
 //#define __LL_DEBUG__
 #ifdef __LL_DEBUG__
 #define LLDEBUG( stmt ) stmt
 #else
 #define LLDEBUG( stmt )
 #endif // __LL_DEBUG__
-
-#if __WORDSIZE == 32
-#define UNDEFINED 0xffff'ffff
-#else
-#define UNDEFINED 0xffff'ffff'ffff'ffff
-#endif // __WORDSIZE == 32
 
 
 // The return code from "write" is ignored. Basically, if write fails, trying to write out why it failed will likely
@@ -98,7 +98,7 @@ static void abort( const char fmt[], ... ) {			// overload real abort
 
 	va_end( args );
 	#ifdef __DEBUG__
-	Backtrace( signal_p ? 4 : 2 );
+	Backtrace( signal_p ? 3 : 1 );						// true => sigSegvBusHandler, ignore bottom N signal handler frames
 	#endif // __DEBUG__
 	abort();											// call the real abort
 	// CONTROL NEVER REACHES HERE!
@@ -200,7 +200,7 @@ static inline __attribute__((always_inline)) void spin_release( volatile SpinLoc
 static void Backtrace( int start ) {
 	enum {
 		Frames = 50,									// maximum number of stack frames
-		Last = 3,										// skip last N stack frames
+		Last = 3,										// skip last N start up stack frames, and get to program main
 	};
 
 	void * array[Frames];
@@ -1012,21 +1012,14 @@ static inline __attribute__((always_inline)) bool setMmapStart( size_t value ) {
 } // setMmapStart
 
 
-// <-------+----------------------------------------------------> bsize (bucket size)
+// <-hsize-<<--------------------- dsize --------------------->>> bsize (bucket size)
 // |header |addr
 //==================================================================================
 //               alignment/offset |
-// <-----------------<------------+-----------------------------> bsize (bucket size)
-//                   |fake-header | addr
+// <-hsize------------------------<<---------- dsize --------->>> bsize (bucket size)
+// |header           |fake-header |addr
 #define HeaderAddr( addr ) ((Heap::Storage::Header *)( (char *)addr - sizeof(Heap::Storage) ))
 #define RealHeader( header ) ((Heap::Storage::Header *)((char *)header - header->kind.fake.offset))
-
-// <-hsize-<<--------------------- dsize ---------------------->> bsize (bucket size)
-// |header |addr
-//==================================================================================
-//               alignment/offset |
-// <------------------------------<<---------- dsize --------->>> bsize (bucket size)
-//                   |fake-header |addr
 #define DataSize( bsize, addr, header ) (bsize - ( (char *)addr - (char *)header ))
 
 
