@@ -4,14 +4,17 @@ exec=a.out
 hostname=`hostname`
 echo -n "======================\n${hostname}\n======================"
 
+arch=`uname -m`
+if [ "${arch}" = "x86_64" ] ; then arch="x86-64"; fi  # rpmalloc screws up here
+
 if [ ${hostname} = "plg2" ] ; then
     allocsdir="${HOME}/software/llheap"
-    allocators="glibc libllheap.so"
+    allocators="libllheap.so"
 else
 #    allocsdir="${HOME}/software/allocators"
     allocsdir="${HOME}/software/mimalloc-bench/extern"
 #    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
-    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/x86-64/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
+    allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/${arch}/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
 fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
@@ -36,27 +39,27 @@ fi
 
 # force initial thread to start on socket boundary
 if [ "${hostname}" = "swift" -o "${hostname}" = "plg2" ] ; then
-    taskset="taskset --cpu-list 128"
+#    taskset="taskset --cpu-list 128-256"  # upper socket
+    taskset=
 elif [ "${hostname}" = "java" ] ; then
-    taskset="taskset --cpu-list 0"
+    taskset=
 elif [ "${hostname}" = "prolog" ] ; then
-    taskset="taskset --cpu-list 0"
+    taskset=
 elif [ "${hostname}" = "algol" ] ; then
-    taskset="taskset --cpu-list 0"
-elif [ "${hostname}" = "jax" ] ; then
-    taskset="taskset --cpu-list 24"
+    taskset=
 else
     echo -n "\nUsage error unknown machine name "${hostname}."\n"
     exit 1
 fi
 
-#strace="strace -cfq"
+#strace='strace -cfq'
 time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
-#perf="perf stat -B -e cache-references,cache-misses a.out"
+#perf='perf stat -B -e cache-references,cache-misses'
+timeout='timeout -k 1 600'
 
 #program="reallocshort"
-#program="realloc"
-program="reallocsim"
+program="realloclong"
+#program="reallocsim"
 
 dims="4 8 16 32"
 if [ "${program}" = "reallocshort" ] ; then
@@ -77,7 +80,7 @@ for allocator in ${allocators} ; do
 	    #echo "${LD_PRELOAD}"
 	fi
 
-	eval ${time} ${strace} ${taskset} timeout -k 1 600 ./${exec} ${args}
+	eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
 
 	if [ "${allocator}" != "glibc" ] ; then # turn off allocator as some fail in shell
 	    unset LD_PRELOAD
