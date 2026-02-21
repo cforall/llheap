@@ -1,111 +1,97 @@
-#include <malloc.h>
-#include <pthread.h>
-#include <sys/time.h>									// gettimeofday
-#include <sys/resource.h>								// getrusage
-#include <string.h>										// strerror
+#include <iostream>
+using namespace std;
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>										// intmax_t
+#include <cstring>
+#include <stdexcept>									// out_of_range
+#include <malloc.h>										// malloc_usable_size
 
-#define LINEARAFF
-#include "affinity.h"
+template< typename T > static inline T pass( T v ) {	// prevent eliding, cheaper than volatile
+	__asm__ __volatile__ ( "" : "+r"(v) );
+	return v ;
+} // pass
 
-static timespec currTime() {
-	timespec t;											// nanoseconds since UNIX epoch
-	if ( clock_gettime( CLOCK_THREAD_CPUTIME_ID, &t ) == -1 ) {
-//	if ( clock_gettime( CLOCK_REALTIME_COARSE, &t ) == -1 ) {
-		fprintf( stderr, "internal error, clock failed %d %s\n", errno, strerror( errno ) );
-	} // if
-	return t;
-} // currTime
+static intmax_t convert( const char * str ) {			// convert C string to integer
+	char * endptr;
+	errno = 0;											// reset
+	intmax_t val = strtoll( str, &endptr, 10 );			// attempt conversion
+	if ( errno == ERANGE ) throw std::out_of_range( "" );
+	if ( endptr == str ||								// conversion failed, no characters generated
+		 *endptr != '\0' ) throw std::invalid_argument( "" ); // not at end of str ?
+	return val;
+} // convert
 
-static inline double dur( timespec end, timespec start ) {
-	long int sec = end.tv_sec - start.tv_sec, nsec = end.tv_nsec - start.tv_nsec;
-	return sec + nsec * 1E-9;
-} // dur
+int main( int argc, char * argv[] ) {
+	ssize_t Blocks = 10000, MinBlkSize = 16, MaxBlkSize = 1024, Step = 8, Times = 1000; // defaults
 
-static inline double dur( timeval end, timeval start ) {
-	long int sec = end.tv_sec - start.tv_sec, msec = end.tv_usec - start.tv_usec;
-	return sec + msec * 1E-6;
-} // dur
+	switch ( argc ) {
+	  case 6:
+		if ( strcmp( argv[5], "d" ) != 0 && (Times = convert( argv[5] )) < 0 ) goto usage;
+		// FALL THROUGH
+	  case 5:
+		if ( strcmp( argv[4], "d" ) != 0 && (Step = convert( argv[4] )) <= 0 ) goto usage;
+		// FALL THROUGH
+	  case 4:
+		if ( strcmp( argv[3], "d" ) != 0 && (MaxBlkSize = convert( argv[3] )) <= 0 ) goto usage;
+		// FALL THROUGH
+	  case 3:
+		if ( strcmp( argv[2], "d" ) != 0 && (MinBlkSize = convert( argv[2] )) <= 0 && MinBlkSize <= MaxBlkSize ) goto usage;
+		// FALL THROUGH
+	  case 2:
+		if ( strcmp( argv[1], "d" ) != 0 && (Blocks = convert( argv[1] )) < 0 ) goto usage;
+		// FALL THROUGH
+		break;
+	  usage:
+	  default:
+		cerr << "Usage: " << argv[0] << " [ Blocks (>= 0) | d [ MinBlkSize (> 0) | d [ MaxBlkSize (> 0) | d [ Step (> 0) | d [ Times (> 0) | d ] ] ] ] ]" << endl;
+		exit( EXIT_FAILURE );							// TERMINATE
+	} // switch
 
+	struct Block { Block * link ; int touch; };
 
-enum { TIMES = 1'000'000'000, ASIZE = 10 };
-
-void * worker( void * arg ) {
-	volatile size_t ** arr = (volatile size_t **)arg;
-	for ( size_t t = 0; t < TIMES / ASIZE; t += 1 ) {
-		for ( size_t r = 0; r < ASIZE; r += 1 ) {
-			*arr[r] += r;								// reads and writes
-		} // for
-	} // for
-	return nullptr;
-} // worker
-
-int main() {
-	#if defined( HYPERAFF )
-	printf( "HYPERAFF affinity\n" );
-	#elif defined( LINEARAFF )
-	printf( "LINEARAFF affinity\n" );
-	#else
-		#error no affinity specified
-	#endif
-
-	#if defined( plg2 )
-	unsigned int THREADS[] = { 4 };
-	#else
-	unsigned int THREADS[] = { 4, 8, 16, 32 };
-	#endif // plg2
-	enum { expers = sizeof( THREADS ) / sizeof( THREADS[0] ) };
-
-//	affinity( pthread_self(), 0 );
-	
-	struct rusage rnow;
-	struct timeval tbegin, tnow;						// there is no real time in getrusage
-	timespec start;
-	timeval puser = { 0, 0 }, psys = { 0, 0 };
-	gettimeofday( &tbegin, 0 );
-
-	printf( "read/writes %d, array size: %d\n", TIMES / ASIZE * ASIZE, ASIZE );
-	for ( unsigned int exp = 0; exp < expers; exp += 1 ) {
-		//printf( "Number of threads: %d\n", THREADS[t] );
-		printf( "%d ", THREADS[exp] );
-
-		gettimeofday( &tnow, 0 );
-		getrusage( RUSAGE_SELF, &rnow );
-		start = currTime();
-
-		size_t * arr[THREADS[exp]][ASIZE];
-		// Allocate by columns in an attempt make the objects contiguous in heap.
-		for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
-			for ( unsigned int t = 0; t < THREADS[exp]; t += 1 ) {
-				arr[t][a] = new size_t;
-			} // for
-		} // for
-
-		pthread_t thread[THREADS[exp]];					// thread[0] unused
-		for ( ssize_t tid = 1; tid < THREADS[exp]; tid += 1 ) { // N - 1 thread
-			if ( pthread_create( &thread[tid], NULL, worker, &arr[tid] ) < 0 ) abort();
-//			affinity( thread[tid], tid );
-		} // for
-	
-		worker( &arr[0]  );								// initialize thread runs one test
-
-		for ( unsigned int tid = 1; tid < THREADS[exp]; tid += 1 ) {
-			if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
-		} // for
-
-		gettimeofday( &tnow, 0 );
-		getrusage( RUSAGE_SELF, &rnow );
-		printf( "%.2fu %.2fs %.2fr %ldkb\n",
-				dur( rnow.ru_utime, puser ), dur( rnow.ru_stime, psys ), dur( currTime(), start ), rnow.ru_maxrss );
-		puser = rnow.ru_utime;  psys = rnow.ru_stime;	// update
-
-		for ( unsigned int t = 0; t < THREADS[exp]; t += 1 ) {
-			for ( unsigned int a = 0; a < ASIZE; a += 1 ) {
-				delete arr[t][a];
-			} // for
-		} // for
-	} // for
+//#define CONTIG
+#ifdef CONTIG
+	double sum = 0.0;
+#endif // CONTIG
+	size_t nbs = 0;
+	for ( size_t bs = MinBlkSize; bs <= (size_t)MaxBlkSize; bs += Step, nbs += 1 ) { // different object sizes
+		Block * list = nullptr, * b;					// stack head pointer
+#ifdef CONTIG
+		size_t contig = 0;
+#endif // CONTIG
+		for ( size_t nb = 0; nb < (size_t)Blocks; nb += 1, b->link = list, list = b ) { 
+			// Use intrusive stack to avoid confounding interspersed allocation arising from array.
+			b = (Block *)pass( malloc( bs ) );
+			// printf( "contig %p %p %zd\n", b, list, (char *)b - ((char *)list + malloc_usable_size( list )) );
+			// if ( b == nullptr ) { printf( "malloc %zu/%zd failed\n", nb, Blocks ); return 1; } // if
+#ifdef CONTIG
+			// Check if previous and current allocation are contiguous.
+			if ( (char *)b - ((char *)list + malloc_usable_size( list )) <= 16 ) contig += 1;
+#endif // CONTIG
+		}
+#ifdef CONTIG
+		sum += contig;
+#endif // CONTIG
+//		int x;
+		for ( size_t t = 0; t < (size_t)Times; t += 1 ) { // repeat
+			for ( Block * b = list; b; b = b->link ) {
+				// pass( x = b->touch );					// read only
+				pass( b->touch += 1 );					// read/write only
+			}
+		}
+//#define FREE
+#ifdef FREE
+		int cnt1 = 1;
+		for ( Block * b = list, * next; b; b = next, cnt1 += 1 ) { // delete every Nth block
+			next = b->link;
+			if ( cnt1 % 2 == 0 ) free( b );
+		}
+#endif // FREE
+	}
+#ifdef CONTIG
+	printf( "avg %.0f\n", sum / nbs );
+#else
+	printf( "avg %.0f\n", 0.0 );						// dummy
+#endif
 } // main
-
-// Local Variables: //
-// compile-command: "g++-14 -Wall -Wextra -g -O3 cache.cc -pthread" //
-// End: //
