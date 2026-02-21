@@ -12,7 +12,7 @@
 #include <iostream>
 using namespace std;
 
-static inline void * pass( void * v ) {					// prevent eliding, cheaper than volatile
+template< typename T > static inline T pass( T v ) {	// prevent eliding, cheaper than volatile
 	__asm__ __volatile__ ( "" : "+r"(v) );
 	return v ;
 } // pass
