@@ -15,6 +15,7 @@ else
     allocsdir="${HOME}/software/mimalloc-bench/extern"
 #    allocators="glibc libhoard.so libjemalloc.so.2 libllheap.so libmimalloc.so.2 libtbbmalloc.so libtcmalloc.so" # librpmalloc.so
     allocators="glibc dh/build/libdiehard.so ff/libffmallocnpmt.so hd/src/libhoard.so hm/out-light/libhardened_malloc-light.so iso/build/libisoalloc.so je/lib/libjemalloc.so ll/libllheap.so lp/Source/bmalloc/libpas/build-cmake-default/Release/libpas_lib.so lt/gnu.make.lib/libltalloc.so mesh/build/lib/libmesh.so mi3/out/release/libmimalloc.so mng/libmallocng.so rp/bin/linux/release/${arch}/librpmalloc.so scudo/compiler-rt/lib/scudo/standalone/libscudo.so sn/release/libsnmallocshim.so tbb/bench_release/libtbbmalloc_proxy.so tc/.libs/libtcmalloc_minimal.so yal/yalloc.so"
+#    allocators="ll/libllheap-stats.so"
 fi
 
 cflag="-g -O3 -Wall -Wextra -DNDEBUG -D${hostname}" # -DLINEARAFF
@@ -62,16 +63,20 @@ timeout='timeout -k 1 3600'
 #program="check_badalloc"
 #program="larson"
 #program="ownership"
-#program="falsesharing"
 #program="cache"
 program="latency"
 
-checksticky() {
+check_sticky() {
     eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
 }
 
-checkheader() {
+check_header() {
     eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
+}
+
+check_badalloc() {
+    ulimit -d 1000000
+    eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 10 ./${exec}
 }
 
 larson() {
@@ -90,9 +95,19 @@ ownership() {
     done
 }
 
-bad_alloc() {
-    ulimit -d 1000000
-    eval ${time} ${strace} ${perf} ${taskset} timeout -k 1 10 ./${exec}
+cache() {
+    ${CC} ${cflag} -DCONTIG ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ./${exec} ${args} 10000
+    ${CC} ${cflag} ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args} 10000 16 16 d 100000
+    ${CC} ${cflag} ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args} 10000
+    ${CC} ${cflag} -DCONTIG -DFREE ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ./${exec} ${args} 10000
+    ${CC} ${cflag} -DFREE ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args} 10000 16 16 d 100000
+    ${CC} ${cflag} -DFREE ${program}.cc
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args} 10000
 }
 
 latency() {
@@ -101,7 +116,7 @@ latency() {
 
 for allocator in ${allocators} ; do
     allocatorname=`echo ${allocator} | sed -e "s@\([a-zA-Z0-9]*\)/.*.so@\1@"`
-    echo -n "\n\n\"${allocatorname}\"\n"
+    echo -n "\n${allocatorname}\n"
 
     # compile without preload for checking => dynamic linking
 #    if [ "${allocator}" = "glibc" ] ; then
@@ -122,11 +137,7 @@ for allocator in ${allocators} ; do
 	#echo "${LD_PRELOAD}"
     fi
 
-    if [ "${program}" != "cache" ] ; then
-	eval ${program}
-    else
-	eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec} ${args}
-    fi
+    eval ${program}
 
     if [ "${allocator}" != "glibc" ] ; then # turn off allocator as some fail in shell
 	unset LD_PRELOAD
