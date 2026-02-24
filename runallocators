@@ -54,12 +54,13 @@ else
 fi
 
 #strace='strace -cfq'
-#time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
+time='/usr/bin/time -f "%Uu %Ss %er %Mkb"'
 #perf='perf stat -B -e cache-references,cache-misses'
-timeout='timeout -k 1 3600'
+#timeout='timeout -k 1 3600'
 
 #program="check_sticky"
 #program="check_header"
+#program="check_alignment"
 #program="check_badalloc"
 #program="larson"
 #program="ownership"
@@ -67,6 +68,10 @@ timeout='timeout -k 1 3600'
 program="latency"
 
 check_sticky() {
+    eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
+}
+
+check_alignment() {
     eval ${time} ${strace} ${timeout} ${taskset} ${perf} ./${exec}
 }
 
