@@ -9,7 +9,6 @@
 #include <cstdint>										// uintptr_t, uint64_t, uint32_t
 #include <unistd.h>										// STDERR_FILENO, sbrk, sysconf, write
 #include <sys/mman.h>									// mmap, munmap
-#include <sys/sysinfo.h>								// get_nprocs
 #include <pthread.h>									// pthread_key_create, pthread_setspecific
 
 #define str(s) #s
@@ -263,7 +262,7 @@ static void Backtrace( int start ) {
 
 
 #ifdef __DEBUG__
-#include <signal.h>										// get_nprocs
+#include <signal.h>										// signal handler
 
 #define __SIGCXT__ ucontext_t *
 #define __SIGPARMS__ int sig __attribute__(( unused )), siginfo_t * sfp __attribute__(( unused )), __SIGCXT__ cxt __attribute__(( unused ))
@@ -500,7 +499,10 @@ static unsigned char CALIGN lookup[LookupSizes];		// O(1) lookup for small sizes
 
 
 enum {
-	// The default extension heap amount in units of bytes. When the current heap reaches the brk address, the brk
+	// The default array size for extending the global heap array to accommodate thread creation.
+	__DEFAULT_THREAD_EXTEND__ = 32,
+
+	// The default heap extension amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
 	__DEFAULT_HEAP_EXTEND__ = 10 * 1024 * 1024,
 
@@ -599,7 +601,7 @@ static void heapMasterCtor( void ) {
 	char * end = (char *)sbrk( 0 );
 	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, __ALIGN__ ) - end ); // move start of heap to multiple of alignment
 	heapMaster.sbrkRemaining = 0;
-	heapMaster.sbrkExtend = malloc_extend();
+	heapMaster.sbrkExtend = malloc_heap_extend();
 	heapMaster.mmapStart = malloc_mmap_start();
 
 	// find the closest bucket size less than or equal to the mmapStart size
@@ -670,7 +672,7 @@ static Heap * getHeap( void ) {
 		size_t remaining = heapMaster.heapManagersStorageEnd - heapMaster.heapManagersStorage; // remaining free heaps in superblock
 		if ( ! heapMaster.heapManagersStorage || remaining == 0 ) {
 			// Each block of heaps is a multiple of the number of cores on the computer.
-			int dimension = get_nprocs();				// get_nprocs_conf does not work
+			int dimension = malloc_thread_extend();
 			size_t size = dimension * sizeof( Heap );
 
 			heapMaster.heapManagersStorage = (Heap *)mmap( 0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
@@ -1977,8 +1979,11 @@ extern "C" {
 	} // free
 
 
+	// Sets the array size for extending the global heap array to accommodate thread creation.
+	__attribute__((weak)) size_t malloc_thread_extend( void ) { return __DEFAULT_THREAD_EXTEND__; }
+
 	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
-	__attribute__((weak)) size_t malloc_extend( void ) { return __DEFAULT_HEAP_EXTEND__; }
+	__attribute__((weak)) size_t malloc_heap_extend( void ) { return __DEFAULT_HEAP_EXTEND__; }
 
 	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
 	__attribute__((weak)) size_t malloc_mmap_start( void ) { return __DEFAULT_MMAP_START__; }

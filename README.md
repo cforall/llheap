@@ -305,9 +305,14 @@ These routines are called *once* during llheap startup to set specific limits *b
 Setting these value early is essential because allocations can occur from the dynamic loader and other libraries before application code executes.
 To set a value, define a specific routine in an application and return the desired value, e.g.:
 
-		size_t malloc_extend( void ) { return 16 * 1024 * 1024; }  // bytes
+		size_t malloc_heap_extend( void ) { return 16 * 1024 * 1024; }  // bytes
 
-#### `size_t malloc_extend( void )`
+#### `size_t malloc_thread_extend( void )`
+return array size for extending the global heap array to accommodate thread creation.
+
+**Return:** heap-thread extension size used throughout a program.
+
+#### `size_t malloc_heap_extend( void )`
 return the number of bytes to extend the `sbrk` area when there is insufficient free storage to service an allocation request.
 
 **Return:** heap extension size used throughout a program.

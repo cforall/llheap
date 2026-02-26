@@ -26,7 +26,8 @@ extern "C" {
 	int posix_aligned_reallocarray( void ** oaddrp, size_t nalignment, size_t dimension, size_t elemSize );
 
 	// New control operations
-	size_t malloc_extend( void );						// heap extend size (bytes)
+	size_t malloc_thread_extend( void );				// heap-thread extend size (threads)
+	size_t malloc_heap_extend( void );					// heap extend size (bytes)
 	size_t malloc_mmap_start( void );					// crossover allocation size from sbrk to mmap
 	size_t malloc_unfreed( void );						// amount subtracted to adjust for unfreed program storage (debug only)
 
