@@ -244,7 +244,7 @@ On failure, directly returns 0 or `ENOMEM`, and `oaddrp` and `errno` are not set
 
 ### New object preserved-properties
 
-#### `size_t malloc_size( void * addr )`
+#### `size_t malloc_request_size( void * addr )`
 returns the requested size of a dynamic object, which is updated when an object is resized. See also `malloc_usable_size`.
 
 **Parameters:**

@@ -32,7 +32,7 @@ extern "C" {
 	size_t malloc_unfreed( void );						// amount subtracted to adjust for unfreed program storage (debug only)
 
 	// Preserved properties
-	size_t malloc_size( void * addr ) __attribute_warn_unused_result__;		 // object's request size, malloc_size <= malloc_usable_size
+	size_t malloc_request_size( void * addr ) __attribute_warn_unused_result__;	// object's request size, malloc_request_size <= malloc_usable_size
 	size_t malloc_alignment( void * addr ) __attribute_warn_unused_result__; // object alignment
 	bool malloc_zero_fill( void * addr ) __attribute_warn_unused_result__;	 // true if object is zero filled
 	bool malloc_remote( void * addr ) __attribute_warn_unused_result__;		 // true if object is remote

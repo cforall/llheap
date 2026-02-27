@@ -1993,14 +1993,14 @@ extern "C" {
 
 
 	// Returns original total allocation size (not bucket size) => array size is dimension * sizeof(T).
-	size_t malloc_size( void * addr ) {
+	size_t malloc_request_size( void * addr ) {
 	  if ( UNLIKELY( addr == nullptr ) ) return 0;		// null allocation has zero size
 		Heap::Storage::Header * header = HeaderAddr( addr );
 		if ( UNLIKELY( AlignmentBit( header ) ) ) {		// fake header ?
 			header = RealHeader( header );				// backup from fake to real header
 		} // if
 		return header->kind.real.size;
-	} // malloc_size
+	} // malloc_request_size
 
 
 	// Returns the alignment of an allocation.

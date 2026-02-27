@@ -169,7 +169,7 @@ void * worker( void * ) {
 		size_t s = (i + 1) * 20;
 		char * area = (char *)calloc( 5, s );
 		if ( area[0] != '\0' || area[s - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "calloc/free corrupt storage1" );
 		area[0] = '\345'; area[s - 1] = '\345';			// fill first/last
 		area[malloc_usable_size( area ) - 1] = '\345';	// fill ultimate byte
@@ -180,7 +180,7 @@ void * worker( void * ) {
 		size_t s = i + 1;
 		locns[i] = (char *)calloc( 5, s );
 		if ( locns[i][0] != '\0' || locns[i][s - 1] != '\0' ||
-			 locns[i][malloc_size( locns[i] ) - 1] != '\0' ||
+			 locns[i][malloc_request_size( locns[i] ) - 1] != '\0' ||
 			 ! malloc_zero_fill( locns[i] ) ) abort( "calloc/free corrupt storage2" );
 		locns[i][0] = '\345'; locns[i][s - 1] = '\345';	// fill first/last
 		locns[i][malloc_usable_size( locns[i] ) - 1] = '\345'; // fill ultimate byte
@@ -198,7 +198,7 @@ void * worker( void * ) {
 		size_t s = i + malloc_mmap_start();				// cross over point
 		char * area = (char *)calloc( 1, s );
 		if ( area[0] != '\0' || area[s - 1] != '\0' ) abort( "calloc/free corrupt storage4.1" );
-		if ( area[malloc_size( area ) - 1] != '\0' ) abort( "calloc/free corrupt storage4.2" );
+		if ( area[malloc_request_size( area ) - 1] != '\0' ) abort( "calloc/free corrupt storage4.2" );
 		if ( ! malloc_zero_fill( area ) ) abort( "calloc/free corrupt storage4.3" );
 		area[0] = '\345'; area[s - 1] = '\345';			// fill first/last
 		area[malloc_usable_size( area ) - 1] = '\345';	// fill ultimate byte
@@ -209,7 +209,7 @@ void * worker( void * ) {
 		size_t s = i + malloc_mmap_start();				// cross over point
 		locns[i] = (char *)calloc( 1, s );
 		if ( locns[i][0] != '\0' || locns[i][s - 1] != '\0' ||
-			 locns[i][malloc_size( locns[i] ) - 1] != '\0' ||
+			 locns[i][malloc_request_size( locns[i] ) - 1] != '\0' ||
 			 ! malloc_zero_fill( locns[i] ) ) abort( "calloc/free corrupt storage5" );
 		locns[i][0] = '\345'; locns[i][s - 1] = '\345';	// fill first/last
 		locns[i][malloc_usable_size( locns[i] ) - 1] = '\345'; // fill ultimate byte
@@ -432,14 +432,14 @@ void * worker( void * ) {
 		// initial N byte allocation
 		char * area = (char *)calloc( 5, i );
 		if ( area[0] != '\0' || area[i - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "calloc/realloc/free corrupt storage1" );
 
 		// Do not start this loop index at 0 because realloc of 0 bytes frees the storage.
 		for ( int s = i; s < 256 * 1024; s += 26 ) {	// start at initial memory request
 			area = (char *)realloc( area, s );			// attempt to reuse storage
 			if ( area[0] != '\0' || area[s - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "calloc/realloc/free corrupt storage2" );
 		} // for
 		free( area );
@@ -452,14 +452,14 @@ void * worker( void * ) {
 		size_t s = i + malloc_mmap_start();				// cross over point
 		char * area = (char *)calloc( 1, s );
 		if ( area[0] != '\0' || area[s - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "calloc/realloc/free corrupt storage3" );
 
 		// Do not start this loop index at 0 because realloc of 0 bytes frees the storage.
 		for ( int r = i; r < 256 * 1024; r += 26 ) {	// start at initial memory request
 			area = (char *)realloc( area, r );			// attempt to reuse storage
 			if ( area[0] != '\0' || area[r - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "calloc/realloc/free corrupt storage4" );
 		} // for
 		free( area );
@@ -508,14 +508,14 @@ void * worker( void * ) {
 		// initial N byte allocation
 		char * area = (char *)calloc( 5, i );
 		if ( area[0] != '\0' || area[i - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "calloc/posix_realloc/free corrupt storage1" );
 
 		// Do not start this loop index at 0 because posix_realloc of 0 bytes frees the storage.
 		for ( int s = i; s < 256 * 1024; s += 26 ) {	// start at initial memory request
 			posix_realloc( (void **)&area, s );			// attempt to reuse storage
 			if ( area[0] != '\0' || area[s - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "calloc/posix_realloc/free corrupt storage2" );
 		} // for
 		free( area );
@@ -528,14 +528,14 @@ void * worker( void * ) {
 		size_t s = i + malloc_mmap_start();				// cross over point
 		char * area = (char *)calloc( 1, s );
 		if ( area[0] != '\0' || area[s - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "calloc/posix_realloc/free corrupt storage3" );
 
 		// Do not start this loop index at 0 because posix_realloc of 0 bytes frees the storage.
 		for ( int r = i; r < 256 * 1024; r += 26 ) {	// start at initial memory request
 			posix_realloc( (void **)&area, r );			// attempt to reuse storage
 			if ( area[0] != '\0' || area[r - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "calloc/posix_realloc/free corrupt storage4" );
 		} // for
 		free( area );
@@ -650,7 +650,7 @@ void * worker( void * ) {
 				abort( "cmemalign/free bad alignment : cmemalign( %d, %d ) = %p", (int)a, s, area );
 			} // if
 			if ( area[0] != '\0' || area[s - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "cmemalign/free corrupt storage" );
 			area[0] = '\345'; area[s - 1] = '\345';		// fill first/last byte
 			free( area );
@@ -668,7 +668,7 @@ void * worker( void * ) {
 			abort( "cmemalign/realloc/free bad alignment : cmemalign( %d, %d ) = %p", (int)a, (int)amount, area );
 		} // if
 		if ( area[0] != '\0' || area[amount - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "cmemalign/realloc/free corrupt storage1" );
 		area[0] = '\345'; area[amount - 2] = '\345';	// fill first/penultimate byte
 
@@ -681,7 +681,7 @@ void * worker( void * ) {
 				abort( "cmemalign/realloc/free bad alignment %p", area );
 			} // if
 			if ( area[0] != '\345' || area[s - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "cmemalign/realloc/free corrupt storage3" );
 			area[s - 1] = '\345';						// fill last byte
 		} // for
@@ -724,7 +724,7 @@ void * worker( void * ) {
 			abort( "cmemalign/realloc with align/free bad alignment : cmemalign( %d, %d ) = %p", (int)a, (int)amount, area );
 		} // if
 		if ( area[0] != '\0' || area[amount - 1] != '\0' ||
-			 area[malloc_size( area ) - 1] != '\0' ||
+			 area[malloc_request_size( area ) - 1] != '\0' ||
 			 ! malloc_zero_fill( area ) ) abort( "cmemalign/realloc with align/free corrupt storage1" );
 		area[0] = '\345'; area[amount - 2] = '\345';	// fill first/penultimate byte
 
@@ -737,7 +737,7 @@ void * worker( void * ) {
 				abort( "cmemalign/realloc with align/free bad alignment %p %zd %zd", area, malloc_alignment( area ), a * 2 );
 			} // if
 			if ( area[s - 1] != '\0' || area[s - 1] != '\0' ||
-				 area[malloc_size( area ) - 1] != '\0' ||
+				 area[malloc_request_size( area ) - 1] != '\0' ||
 				 ! malloc_zero_fill( area ) ) abort( "cmemalign/realloc/free corrupt storage3" );
 			area[s - 1] = '\345';						// fill last byte
 		} // for
