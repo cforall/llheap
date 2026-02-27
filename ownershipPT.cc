@@ -89,22 +89,22 @@ extern "C" size_t malloc_unfreed() { return 4 * 312 /* pthreads */; }
 int main() {
 	pthread_t prod1, prod2, cons1, cons2;
 
-	if ( pthread_create( &cons1, NULL, Cons, NULL ) < 0 ) abort();
+	if ( pthread_create( &cons1, nullptr, Cons, nullptr ) < 0 ) abort();
 	affinity( cons1, 0 );
 
-	if ( pthread_create( &cons2, NULL, Cons, NULL ) < 0 ) abort();
+	if ( pthread_create( &cons2, nullptr, Cons, nullptr ) < 0 ) abort();
 	affinity( cons2, 1 );
 
-	if ( pthread_create( &prod1, NULL, Prod, NULL ) < 0 ) abort();
+	if ( pthread_create( &prod1, nullptr, Prod, nullptr ) < 0 ) abort();
 	affinity( prod1, 2 );
 
-	if ( pthread_create( &prod2, NULL, Prod, NULL ) < 0 ) abort();
+	if ( pthread_create( &prod2, nullptr, Prod, nullptr ) < 0 ) abort();
 	affinity( prod2, 3 );
 
-	if ( pthread_join( prod2, NULL ) < 0 ) abort();
-	if ( pthread_join( prod1, NULL ) < 0 ) abort();
-	if ( pthread_join( cons1, NULL ) < 0 ) abort();
-	if ( pthread_join( cons2, NULL ) < 0 ) abort();
+	if ( pthread_join( prod2, nullptr ) < 0 ) abort();
+	if ( pthread_join( prod1, nullptr ) < 0 ) abort();
+	if ( pthread_join( cons1, nullptr ) < 0 ) abort();
+	if ( pthread_join( cons2, nullptr ) < 0 ) abort();
 	// malloc_stats();
 }
 

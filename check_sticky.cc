@@ -46,12 +46,12 @@ int main() {
 	// Test if allocator preserves alignment across realloc
 	for ( size_t a = 16; a <= 32 * 1024; a += a ) {		// powers of 2
 		void * area = pass( memalign( a, 27 ) );		// initial N byte allocation
-		if ( area == NULL ) abort();					// no storage ?
+	  if ( area == nullptr ) abort();					// no storage ?
 		const size_t range = (32 * 1024);
 		for ( size_t s = 27; s <= range; s += 1 ) {		// initial request
 			size_t size = rand() % range + 1;			// [1,range], random
 			area = (char *)pass( realloc( area, size ) ); // reuse storage ?
-			if ( area == NULL ) abort();				// no storage ?
+			if ( area == nullptr ) abort();				// no storage ?
 			if ( (size_t)area % a != 0 ) {				// check alignment
 				fprintf( stderr, "failed alignment:%zd size:%zd\n", a, size );
 				exit( 1 );

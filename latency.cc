@@ -604,14 +604,14 @@ int main() {
 
 		pthread_t thread[THREADS[t]];					// thread[0] unused
 		for ( uintptr_t tid = 1; tid < THREADS[t]; tid += 1 ) { // N - 1 thread
-			if ( pthread_create( &thread[tid], NULL, worker, (void *)tid ) < 0 ) abort();
+			if ( pthread_create( &thread[tid], nullptr, worker, (void *)tid ) < 0 ) abort();
 //			affinity( thread[tid], tid );
 		} // for
 	
 		worker( 0 );									// initialize thread runs one test
 
 		for ( unsigned int tid = 1; tid < THREADS[t]; tid += 1 ) {
-			if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
+			if ( pthread_join( thread[tid], nullptr ) < 0 ) abort();
 		} // for
 
 		if ( pthread_barrier_destroy( &barrier ) ) abort();

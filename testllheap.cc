@@ -769,14 +769,14 @@ int main( int argc, char *argv[] ) {
 
 	affinity( pthread_self(), 0 );
 	for ( int tid = 1; tid < Threads; tid += 1 ) {		// N - 1 thread
-		if ( pthread_create( &thread[tid], NULL, worker, NULL) < 0 ) abort();
+		if ( pthread_create( &thread[tid], nullptr, worker, nullptr) < 0 ) abort();
 		affinity( thread[tid], tid );
 	} // for
 	
 	worker( nullptr );									// initialize thread runs one test
 
 	for ( int tid = 1; tid < Threads; tid += 1 ) {
-		if ( pthread_join( thread[tid], NULL ) < 0 ) abort();
+		if ( pthread_join( thread[tid], nullptr ) < 0 ) abort();
 	} // for
 #else
 	worker( nullptr );

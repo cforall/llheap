@@ -142,7 +142,7 @@ int main( int argc, char * argv[] ) {
 
 	pthread_t workers[Threads];
 	for ( size_t i = 0; i < Threads; i += 1 ) {
-		if ( pthread_create( &workers[i], NULL, worker, (void *)i ) < 0 ) abort();
+		if ( pthread_create( &workers[i], nullptr, worker, (void *)i ) < 0 ) abort();
 //		affinity( workers[i], i );
 	} // for
 
@@ -150,7 +150,7 @@ int main( int argc, char * argv[] ) {
 	stop = true;
 
 	for ( unsigned int i = 0; i < Threads; i += 1 ) {
-		if ( pthread_join( workers[i], NULL ) < 0 ) abort();
+		if ( pthread_join( workers[i], nullptr ) < 0 ) abort();
 	} // for
 
 	for ( unsigned int i = 0; i < Threads; i += 1 ) { // free any outstanding allocations
