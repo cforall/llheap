@@ -471,7 +471,7 @@ static const unsigned int CALIGN bucketSizes[] = {		// different bucket sizes
 	3'145'728, 4'194'304 + sizeof(Heap::Storage), // 2
 	6'291'456, 8'388'608 + sizeof(Heap::Storage), 12'582'912, 16'777'216 + sizeof(Heap::Storage), // 4
 	25'165'824 + sizeof(Heap::Storage), 33'554'432 + sizeof(Heap::Storage), // 2
-	50'331'648 + sizeof(Heap::Storage),	67'108'864 + sizeof(Heap::Storage), // 2
+	50'331'648 + sizeof(Heap::Storage), 67'108'864 + sizeof(Heap::Storage), // 2
 };
 
 static_assert( Heap::NoBucketSizes == sizeof(bucketSizes) / sizeof(bucketSizes[0] ), "size of bucket array is wrong" );
@@ -599,17 +599,19 @@ static void heapMasterCtor( void ) {
 	heapMaster.mgrLock = 0;
 
 	char * end = (char *)sbrk( 0 );
-	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, __ALIGN__ ) - end ); // move start of heap to multiple of alignment
+	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, heapMaster.pageSize ) - end ); // move start of heap to page-size boundary
+	
 	heapMaster.sbrkRemaining = 0;
 	heapMaster.sbrkExtend = malloc_heap_extend();
+	always_assert( heapMaster.sbrkExtend % heapMaster.pageSize == 0 && heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
 	heapMaster.mmapStart = malloc_mmap_start();
 
 	// find the closest bucket size less than or equal to the mmapStart size
 	heapMaster.maxBucketsUsed = Bsearchl( heapMaster.mmapStart, bucketSizes, Heap::NoBucketSizes ); // binary search
 
-	assert( (heapMaster.mmapStart >= heapMaster.pageSize) && (bucketSizes[Heap::NoBucketSizes - 1] >= heapMaster.mmapStart) );
-	assert( heapMaster.maxBucketsUsed < Heap::NoBucketSizes ); // subscript failure ?
-	assert( heapMaster.mmapStart <= bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
+	always_assert( (heapMaster.mmapStart >= heapMaster.pageSize) && (bucketSizes[Heap::NoBucketSizes - 1] >= heapMaster.mmapStart) );
+	always_assert( heapMaster.maxBucketsUsed < Heap::NoBucketSizes ); // subscript failure ?
+	always_assert( heapMaster.mmapStart <= bucketSizes[heapMaster.maxBucketsUsed] ); // search failure ?
 
 	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 	heapMaster.heapManagersList = nullptr;

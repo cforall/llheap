@@ -314,6 +314,7 @@ return array size for extending the global heap array to accommodate thread crea
 
 #### `size_t malloc_heap_extend( void )`
 return the number of bytes to extend the `sbrk` area when there is insufficient free storage to service an allocation request.
+Must be multiple of page size and >= 256K.
 
 **Return:** heap extension size used throughout a program.
 
