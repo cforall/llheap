@@ -1038,7 +1038,7 @@ static inline __attribute__((always_inline)) void checkAlign( size_t alignment )
 static inline __attribute__((always_inline)) void checkHeader( bool check, const char name[], void * addr ) {
 	if ( UNLIKELY( check ) ) {							// bad address ?
 		abort( "**** Error **** attempt to %s storage %p outside the heap range %p<->%p.\n"
-			   "Possible cause is duplicate free on same block or overwriting of memory.",
+			   "Possible cause is freeing stack storage or overwriting memory address.",
 			   name, addr, heapMaster.sbrkStart, heapMaster.sbrkEnd );
 	} // if
 } // checkHeader
