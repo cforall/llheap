@@ -20,9 +20,13 @@ int main() {
 	// **** Error **** Using a scrubbed pointer address 0xffffffffffffffff.
     // Possible cause is using uninitialized storage or using storage after it has been freed.
 
-	long int * ip = (long int *)malloc( sizeof( &ip ) );
-	free( ip );
-	free( ip );
+	// long int * ip = (long int *)malloc( sizeof( &ip ) );
+	// free( ip );   free( ip );
+
+	int i; // free stack variable
+	free( &i );
+	// **** Error **** attempt to free storage 0x7fffffffe864 outside the heap range 0x555555574000<->0x555555614000.
+	// Possible cause is duplicate free on same block or overwriting of memory.
 
 	// long int * ip = (long int *)malloc( 64 * 1024 * 1024 ); // mapped allocation
 	// ip[-2] &= ~0x4l; // turn off mapped bit
