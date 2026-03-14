@@ -577,7 +577,7 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	heapMaster.freeHeapManagersList = heapManager;
 
 	#ifdef __DEBUG__
-	LLDEBUG( debugprt( "HDtor %p %jd %jd\n", heapManager, heapManager->allocUnfreed, heapMaster.allocUnfreed ) );
+	LLDEBUG( debugprt( "heapManagerDtor %p %jd %jd\n", heapManager, heapManager->allocUnfreed, heapMaster.allocUnfreed ) );
 	#endif // __DEBUG__
 
 	#ifdef __STATISTICS__
@@ -1037,9 +1037,9 @@ static inline __attribute__((always_inline)) void checkAlign( size_t alignment )
 
 static inline __attribute__((always_inline)) void checkHeader( bool check, const char name[], void * addr ) {
 	if ( UNLIKELY( check ) ) {							// bad address ?
-		abort( "**** Error **** attempt to %s storage %p outside the heap range %p<->%p.\n"
+		abort( "**** Error **** attempt by thread %lx to %s storage %p outside the heap range %p<->%p.\n"
 			   "Possible cause is freeing stack storage or overwriting memory address.",
-			   name, addr, heapMaster.sbrkStart, heapMaster.sbrkEnd );
+			   pthread_self(), name, addr, heapMaster.sbrkStart, heapMaster.sbrkEnd );
 	} // if
 } // checkHeader
 #endif // __DEBUG__
@@ -1071,8 +1071,8 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 		fakeHeader( header, alignment );
 		#ifdef __DEBUG__								// check for corrupt header
 		if ( UNLIKELY( alignment < __ALIGN__ || ! Pow2( alignment ) ) ) {
-			abort( "**** Error **** attempt to %s storage %p with corrupted header, bad alignment %zu.",
-				   name, addr, alignment );
+			abort( "**** Error **** attempt by thread %lx to %s storage %p with corrupted header, bad alignment %zu.",
+				   pthread_self(), name, addr, alignment );
 		} // if
 		#endif // __DEBUG__
 	if ( UNLIKELY( MmappedBit( header ) ) ) {			// mapped storage ?
@@ -1091,15 +1091,15 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 	if ( UNLIKELY(
 			 // freed and only free-list node => null link
 			 freeHead == nullptr ||
-			 // freed and link points at another free block not to a bucket in the bucket array.
-			 ( freeHead < &heapManager->freeLists[0] || &heapManager->freeLists[Heap::NoBucketSizes] <= freeHead ) ||
+			 // not remote free, freed, and link points at another free block not to a bucket in the bucket array.
+			 ( heapManager == freeHead->homeManager && (freeHead < &heapManager->freeLists[0] || &heapManager->freeLists[Heap::NoBucketSizes] <= freeHead) ) ||
 			 // request size overwritten
 			 header->kind.real.size > freeHead->blockSize
 			 )
 		) {
-		abort( "**** Error **** attempt to %s storage %p with corrupted header.\n"
+		abort( "**** Error **** attempt by thread %lx to %s storage %p with corrupted header.\n"
 			   "Possible cause is duplicate free on same allocation or overwriting of header information.",
-			   name, addr );
+			   pthread_self(), name, addr );
 	} // if
 	#endif // __DEBUG__
 
@@ -1109,6 +1109,7 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 
 
 static inline __attribute__((always_inline)) void * master_extend( size_t size ) {
+	LLDEBUG( debugprt( "master_extend size %zd\n", size ) );
 	spin_acquire( &heapMaster.extLock );
 
 	ptrdiff_t rem = heapMaster.sbrkRemaining - size;
@@ -1135,6 +1136,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 
 
 static void * manager_extend( size_t size ) {
+	LLDEBUG( debugprt( "manager_extend size %zd\n", size ) );
 	// If the size requested is > the current remaining reserve => increase the reserve.
 	size_t increase = Ceiling( size > ( heapMaster.sbrkExtend / 16 ) ? size : ( heapMaster.sbrkExtend / 16 ), __ALIGN__ );
 	void * newblock = master_extend( increase );
@@ -1384,7 +1386,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 	bool mapped = headers( "free", addr, header, freeHead, tsize, alignment );
 
-	LLDEBUG( debugprt( "\tdoFree heap %p addr %p tsize %zd\n", heap, addr, tsize ) );
+	LLDEBUG( debugprt( "\tdoFree heap %p addr %p tsize %zd ", heap, addr, tsize ) );
 
 	#if defined( __STATISTICS__ ) || defined( __DEBUG__ )
 	size_t size = header->kind.real.size;				// optimization
@@ -1421,9 +1423,11 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 
 		#ifdef __OWNERSHIP__
 		if ( LIKELY( heap == freeHead->homeManager ) ) { // belongs to this thread
+			LLDEBUG( debugprt( "free list\n " ) );
 			header->kind.real.next = freeHead->freeList; // push on stack
 			freeHead->freeList = (Heap::Storage *)header;
 		} else {										// return to thread owner
+			LLDEBUG( debugprt( "remote\n" ) );
 			#ifdef __REMOTESPIN__
 			spin_acquire( &freeHead->remoteLock );
 			header->kind.real.next = freeHead->remoteList; // push entire remote list to bucket
@@ -1454,6 +1458,7 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 		freeHead->freeList = (Heap::Storage *)header;
 		#endif // __OWNERSHIP__
 	} else {											// mmapped
+		LLDEBUG( debugprt( "mmapped\n" ) );
 		#ifdef __STATISTICS__
 		heap->stats.munmap_calls += 1;
 		heap->stats.munmap_request += size;
