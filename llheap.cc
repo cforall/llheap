@@ -1089,10 +1089,10 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 	checkHeader( header < heapMaster.sbrkStart || heapMaster.sbrkEnd < header, name, addr ); // bad address ? (offset could be + or -)
 	// Check freeHead before dereferencing
 	if ( UNLIKELY(
-			 // freed and only free-list node => null link
+			 // freed? and only free-list node => null link
 			 freeHead == nullptr ||
-			 // not remote free, freed, and link points at another free block not to a bucket in the bucket array.
-			 ( heapManager == freeHead->homeManager && (freeHead < &heapManager->freeLists[0] || &heapManager->freeLists[Heap::NoBucketSizes] <= freeHead) ) ||
+			 // first grab correct heapManager vis-a-vis local or remote free, then freed?, and link points at a free block not to a bucket in the bucket array.
+			 ({ Heap::FreeHeader * temp = freeHead; heapManager == temp->homeManager && (temp < &heapManager->freeLists[0] || &heapManager->freeLists[Heap::NoBucketSizes] <= temp); }) ||
 			 // request size overwritten
 			 header->kind.real.size > freeHead->blockSize
 			 )
