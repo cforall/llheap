@@ -75,6 +75,7 @@ Unsupported routines.
 * `realloc` and `reallocarray` preserve sticky properties across copying.
 * `malloc_stats` prints detailed statistics of allocation/free operations when linked with a statistic version.
 * Existence of shell variable `MALLOC_STATS` implicitly calls `malloc_stats` at program termination. If `MALLOC_STATS=1`, allocation-bucket information is printed.
+* Existence of shell variable `MALLOC_SCUB=0` turned off memory scrubbing of freed storage leaving only assertion checking with debugging.
 
 ## Added Features
 

@@ -30,7 +30,7 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
-#define CACHE_ALIGN 64
+enum { CACHE_ALIGN =  64 };
 #define CALIGN __attribute__(( aligned(CACHE_ALIGN) ))
 
 #ifdef TLS
@@ -40,9 +40,9 @@
 #endif // TLS
 
 #if __WORDSIZE == 32
-#define UNDEFINED 0xffff'ffff
+enum { UNDEFINED = 0xffff'ffff };
 #else
-#define UNDEFINED 0xffff'ffff'ffff'ffff
+enum { UNDEFINED = 0xffff'ffff'ffff'ffff };
 #endif // __WORDSIZE == 32
 
 //#define __LL_DEBUG__
@@ -552,15 +552,21 @@ struct HeapMaster {
 }; // HeapMaster
 
 
-static volatile bool heapMasterBootFlag = false;		// trigger for first heap
-static HeapMaster heapMaster;							// program global
-
-
 // Thread-local storage is allocated lazily when the storage is accessed.
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
+static volatile bool heapMasterBootFlag CALIGN = false;	// trigger for first heap
+static HeapMaster CALIGN heapMaster;					// program global
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
 static pthread_key_t pthread_key CALIGN;				// used by pthread_key_create
 static thread_local size_t PAD2 CALIGN TLSMODEL __attribute__(( unused )); // protect further false sharing
+
+#ifdef __DEBUG__
+// Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
+// pointer in the interrupt frame. Also, the compiler cannot assume scrub_size is constant because it can be changed via
+// an environment variable (see heapMasterCtor). Hence, it must generate slightly slower versions of memset.
+enum { SCRUB = '\xff', SCRUB_SIZE = 128 };				// default scrub amount
+static size_t scrub_size = SCRUB_SIZE;
+#endif // __DEBUG__
 
 
 // For sequential programs without linked options -pthread/-lpthread, pthread_key_create and pthread_setspecific
@@ -633,6 +639,7 @@ static void heapMasterCtor( void ) {
 
 	#ifdef __DEBUG__
 	LLDEBUG( debugprt( "heapMasterCtor %jd set to zero\n", heapMaster.allocUnfreed ) );
+	if ( char * ms = getenv( "MALLOC_SCRUB" ); ms && ms[0] == '0' ) scrub_size = 0;	// turn off scrubbing ?
 	heapMaster.allocUnfreed = 0;
 	signal( SIGSEGV, sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Invalid memory reference (default: Core)
 	signal( SIGBUS,  sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Bus error, bad memory access (default: Core)
@@ -763,6 +770,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 	// For static linking, startup can get here first => initialize the heap. However even with static linking, there
 	// can be be dynamic linking so heap is initialized by first call to malloc.
 	if ( ! heapMasterBootFlag ) { heapManagerCtor(); }	// sanity check
+
 	#ifdef __DEBUG__
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
 	#endif // __DEBUG__
@@ -773,9 +781,7 @@ NOWARNING( __attribute__(( destructor( 100 ) )) static void shutdown( void ) {, 
 	#ifdef __STATISTICS__
 	char * ms = getenv( "MALLOC_STATS" );
 	if ( ms ) {											// check for external printing
-		if ( strcmp( ms, "1" ) == 0 ) {					// print bucket lists ?
-			print_buckets = true;
-		} // if
+		if ( ms[0] == '1' ) print_buckets = true;		// print bucket lists ?
 		malloc_stats();									// print statistics
 	} // if
 	#endif // __STATISTICS__
@@ -1204,10 +1210,6 @@ static void * manager_extend( size_t size ) {
 // return from malloc, rather than checking both NULL return and errno == ENOMEM.
 //#define __NULL_0_ALLOC__ /* Uncomment to return null address for malloc( 0 ). */
 
-// Do not use '\xfe' for scrubbing because dereferencing an address composed of it causes a SIGSEGV *without* a valid IP
-// pointer in the interrupt frame.
-#define SCRUB '\xff'									// scrub value
-#define SCRUB_SIZE 1024lu								// scrub size, front/back/all of allocation area
 
 static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_PARM ) {
 	BOOT_HEAP_MANAGER();
@@ -1308,8 +1310,8 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 					if ( UNLIKELY( block == nullptr ) ) { return nullptr; } // no memory ?
 
 					#ifdef __DEBUG__
-					// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
-					memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+					// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first scrub_size bytes.
+					memset( block->data, SCRUB, Min( scrub_size, tsize - sizeof(Heap::Storage) ) );
 					#endif // __DEBUG__
 				} // if
 			} // if
@@ -1348,9 +1350,9 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 		block->header.kind.real.blockSize = MarkMmappedBit( tsize ); // storage size for munmap
 
 		#ifdef __DEBUG__
-		// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first SCRUB_SIZE bytes.
+		// For new memory, scrub so subsequent uninitialized usages might fail. Only scrub the first scrub_size bytes.
 		// The rest of the storage set to 0 by mmap.
-		memset( block->data, SCRUB, Min( SCRUB_SIZE, tsize - sizeof(Heap::Storage) ) );
+		memset( block->data, SCRUB, Min( scrub_size, tsize - sizeof(Heap::Storage) ) );
 		#endif // __DEBUG__
 	} // if
 
@@ -1410,14 +1412,16 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 	if ( LIKELY( ! mapped ) ) {							// sbrk ?
 		assert( freeHead );
 		#ifdef __DEBUG__
-		// Scrub old memory so subsequent usages might fail. Only scrub the first/last SCRUB_SIZE bytes.
-		char * data = ((Heap::Storage *)header)->data;	// data address
-		size_t dsize = tsize - sizeof(Heap::Storage);	// data size
-		if ( dsize <= SCRUB_SIZE * 2 ) {
-			memset( data, SCRUB, dsize );				// scrub all
-		} else {
-			memset( data, SCRUB, SCRUB_SIZE );			// scrub front
-			memset( data + dsize - SCRUB_SIZE, SCRUB, SCRUB_SIZE ); // scrub back
+		// Scrub old memory so subsequent usages might fail. Only scrub the first/last scrub_size bytes.
+		if ( scrub_size != 0 ) {
+			char * data = ((Heap::Storage *)header)->data; // data address
+			size_t dsize = tsize - sizeof(Heap::Storage);  // data size
+			if ( LIKELY( dsize <= scrub_size * 2 ) ) {
+				memset( data, SCRUB, dsize );			// scrub all
+			} else {
+				memset( data, SCRUB, scrub_size );		// scrub front
+				memset( data + dsize - scrub_size, SCRUB, scrub_size ); // scrub back
+			} // if
 		} // if
 		#endif // __DEBUG__
 
