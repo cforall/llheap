@@ -639,7 +639,11 @@ static void heapMasterCtor( void ) {
 
 	#ifdef __DEBUG__
 	LLDEBUG( debugprt( "heapMasterCtor %jd set to zero\n", heapMaster.allocUnfreed ) );
-	if ( char * ms = getenv( "MALLOC_SCRUB" ); ms && ms[0] == '0' ) scrub_size = 0;	// turn off scrubbing ?
+	if ( char * ms = getenv( "MALLOC_SCRUB" ); ms && ms[0] != '\0' ) {
+		errno = 0;
+		long long int temp = strtoll( ms, nullptr, 10 );
+		if ( errno != ERANGE && temp >= 0 ) scrub_size = temp;
+	} //
 	heapMaster.allocUnfreed = 0;
 	signal( SIGSEGV, sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Invalid memory reference (default: Core)
 	signal( SIGBUS,  sigSegvBusHandler, SA_SIGINFO | SA_ONSTACK ); // Bus error, bad memory access (default: Core)
@@ -655,8 +659,8 @@ static void heapMasterCtor( void ) {
 	#endif // __FASTLOOKUP__
 
 	// Register pthread destructor for all future pthreads.
-	if ( pthread_key_create( &pthread_key, heapManagerDtor ) ) {
-		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", errno );
+	if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
+		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
 	} // if
 
 	heapMasterBootFlag = true;
@@ -754,8 +758,8 @@ static void heapManagerCtor( void ) {
 	heapMaster.threadsStarted += 1;
 	#endif // __STATISTICS__
 
-	if ( pthread_setspecific( pthread_key, (void *)1 ) ) { // key must be non-zero to trigger destructor
-		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", errno );
+	if ( int rc = pthread_setspecific( pthread_key, (void *)1 ); rc != 0 ) { // key must be non-zero to trigger destructor
+		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", rc );
 	} // if
 
 	spin_release( &heapMaster.mgrLock );
