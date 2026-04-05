@@ -504,7 +504,11 @@ enum {
 
 	// The default heap extension amount in units of bytes. When the current heap reaches the brk address, the brk
 	// address is extended by the extension amount.
-	__DEFAULT_HEAP_EXTEND__ = 10 * 1024 * 1024,
+	__DEFAULT_HEAP_EXTEND__ = 128 * 1024 * 1024,
+
+	// The default thread block (slab) amount in units of bytes. When the current thread's block is too small for the
+	// next request, the maximum of the __DEFAULT_THREAD_BLOCK__ or request size is allocated from the heap.
+	__DEFAULT_THREAD_BLOCK__ = __DEFAULT_HEAP_EXTEND__ / 128,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
@@ -593,26 +597,31 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	#endif // __STATISTICS__
 
 	spin_release( &heapMaster.mgrLock );
+
+	int * ip = (int *)malloc( sizeof( int ) );
+	free( ip );
 } // heapManagerDtor
 
 
 static void heapMasterCtor( void ) {
 	// Singleton pattern to initialize heap master
+	always_assert( ! heapMasterBootFlag );
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 
 	heapMaster.extLock = 0;
 	heapMaster.mgrLock = 0;
 
-	char * end = (char *)sbrk( 0 );
-	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, heapMaster.pageSize ) - end ); // move start of heap to page-size boundary
-	
+//	char * end = (char *)sbrk( 0 );
+//	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, heapMaster.pageSize ) - end ); // move start of heap to page-size boundary
+//	heapMaster.sbrkStart = heapMaster.sbrkEnd = nullptr;
+
 	heapMaster.sbrkRemaining = 0;
 	heapMaster.sbrkExtend = malloc_heap_extend();
 	always_assert( heapMaster.sbrkExtend % heapMaster.pageSize == 0 && heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
 	heapMaster.mmapStart = malloc_mmap_start();
 
-	// find the closest bucket size less than or equal to the mmapStart size
+	// Find the closest bucket size less than or equal to the mmapStart size.
 	heapMaster.maxBucketsUsed = Bsearchl( heapMaster.mmapStart, bucketSizes, Heap::NoBucketSizes ); // binary search
 
 	always_assert( (heapMaster.mmapStart >= heapMaster.pageSize) && (bucketSizes[Heap::NoBucketSizes - 1] >= heapMaster.mmapStart) );
@@ -658,12 +667,14 @@ static void heapMasterCtor( void ) {
 	} // for
 	#endif // __FASTLOOKUP__
 
-	// Register pthread destructor for all future pthreads.
+	heapMasterBootFlag = true;
+
+	// LLHEAP CAN NOW SERVICE ALLOCATIONS.
+
+	// Register pthread destructor for all future pthreads, which might call malloc recursively during bootstrap.
 	if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
 		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
 	} // if
-
-	heapMasterBootFlag = true;
 } // HeapMaster::heapMasterCtor
 
 
@@ -1070,8 +1081,8 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 	header = HeaderAddr( addr );
 
 	#ifdef __DEBUG__
-	// Because mapped addresses can be any value, there has to be a derefence here, which can fail with a segment fault.
-	if ( LIKELY( ! MmappedBit( header ) ) ) checkHeader( header < heapMaster.sbrkStart, name, addr ); // bad low address ?
+	// Because mapped addresses can be any value, there has to be a dereference here, which can fail with a segment fault.
+//	if ( LIKELY( ! MmappedBit( header ) ) ) checkHeader( header < heapMaster.sbrkStart, name, addr ); // bad low address ?
 	#endif // __DEBUG__
 
 	if ( LIKELY( ! StickyBits( header ) ) ) {			// no sticky bits ?
@@ -1096,7 +1107,7 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 	} // if
 
 	#ifdef __DEBUG__
-	checkHeader( header < heapMaster.sbrkStart || heapMaster.sbrkEnd < header, name, addr ); // bad address ? (offset could be + or -)
+//	checkHeader( header < heapMaster.sbrkStart || heapMaster.sbrkEnd < header, name, addr ); // bad address ? (offset could be + or -)
 	// Check freeHead before dereferencing
 	if ( UNLIKELY(
 			 // freed? and only free-list node => null link
@@ -1126,8 +1137,15 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
 		size_t increase = Ceiling( size > heapMaster.sbrkExtend ? size : heapMaster.sbrkExtend, __ALIGN__ );
-		// if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) abort( NO_MEMORY_MSG, size );	// failed, no memory
-		if ( UNLIKELY( sbrk( increase ) == (void *)-1 ) ) { spin_release( &heapMaster.extLock ); return nullptr; } // failed, no memory, errnor == ENOMEM
+		Heap::Storage * block;
+		block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
+			if ( errno == ENOMEM ) { spin_release( &heapMaster.extLock ); return nullptr; }	// no memory
+			// Do not call strerror( errno ) as it may call malloc.
+			abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
+				   size, heapMaster.mmapStart, errno );
+		} // if
+		heapMaster.sbrkStart = heapMaster.sbrkEnd = block;
 		rem = heapMaster.sbrkRemaining + increase - size;
 
 		#ifdef __STATISTICS__
@@ -1148,7 +1166,8 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 static void * manager_extend( size_t size ) {
 	LLDEBUG( debugprt( "manager_extend size %zd\n", size ) );
 	// If the size requested is > the current remaining reserve => increase the reserve.
-	size_t increase = Ceiling( size > ( heapMaster.sbrkExtend / 16 ) ? size : ( heapMaster.sbrkExtend / 16 ), __ALIGN__ );
+	size_t tblock = malloc_thread_block();
+	size_t increase = Ceiling( size > tblock ? size : tblock, __ALIGN__ );
 	void * newblock = master_extend( increase );
 
   if ( UNLIKELY( newblock == nullptr ) ) return nullptr; // no memory ?
@@ -1160,12 +1179,13 @@ static void * manager_extend( size_t size ) {
 		// that free list. Distributing the storage across multiple free lists is an option but takes time.
 		ptrdiff_t rem = heapManager->bufRemaining;		// positive
 
-		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
-			#ifdef __STATISTICS__
-			heapMaster.blkNoncontig += 1;
-			heapMaster.blkFragstorage += rem;
-			#endif // __STATISTICS__
+		#ifdef __STATISTICS__
+		// First thread block is considered non-contiguous as no prior thread blocks.
+		heapMaster.blkNoncontig += 1;
+		heapMaster.blkFragstorage += rem;
+		#endif // __STATISTICS__
 
+		if ( (decltype(bucketSizes[0]))rem >= bucketSizes[0] ) { // minimal size ? otherwise ignore
 			Heap::FreeHeader * freeHead =
 			#ifdef __FASTLOOKUP__
 				rem < LookupSizes ? &(heapManager->freeLists[lookup[rem]]) :
@@ -1999,6 +2019,9 @@ extern "C" {
 
 	// Sets the amount (bytes) to extend the heap when there is insufficent free storage to service an allocation.
 	__attribute__((weak)) size_t malloc_heap_extend( void ) { return __DEFAULT_HEAP_EXTEND__; }
+
+	// Sets the size of thread block allocated from the heap.
+	__attribute__((weak)) size_t malloc_thread_block( void ) { return __DEFAULT_THREAD_BLOCK__; }
 
 	// Sets the crossover point between allocations occuring in the sbrk area or separately mmapped.
 	__attribute__((weak)) size_t malloc_mmap_start( void ) { return __DEFAULT_MMAP_START__; }
