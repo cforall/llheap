@@ -508,7 +508,7 @@ enum {
 
 	// The default thread block (slab) amount in units of bytes. When the current thread's block is too small for the
 	// next request, the maximum of the __DEFAULT_THREAD_BLOCK__ or request size is allocated from the heap.
-	__DEFAULT_THREAD_BLOCK__ = __DEFAULT_HEAP_EXTEND__ / 128,
+	__DEFAULT_THREAD_BLOCK__ = 1 * 10124 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
@@ -519,6 +519,8 @@ enum {
 	__DEFAULT_HEAP_UNFREED__ = 0
 }; // enum
 
+static_assert( __DEFAULT_HEAP_EXTEND__ >= __DEFAULT_THREAD_BLOCK__, "Heap extension must be >= thread block size" );
+
 
 struct HeapMaster {
 	SpinLock_t extLock;									// protects allocation-buffer extension
@@ -528,6 +530,7 @@ struct HeapMaster {
 	void * sbrkEnd;										// end of sbrk area (logical end of heap)
 	size_t sbrkRemaining;								// amount of free storage at end of sbrk area
 	size_t sbrkExtend;									// sbrk extend amount
+	size_t sbrkThreadBlock;								// size of thread block carved from sbrk slab
 	size_t pageSize;									// architecture pagesize
 	size_t mmapStart;									// cross over point for mmap
 	size_t maxBucketsUsed;								// maximum number of buckets in use
@@ -597,9 +600,6 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	#endif // __STATISTICS__
 
 	spin_release( &heapMaster.mgrLock );
-
-	int * ip = (int *)malloc( sizeof( int ) );
-	free( ip );
 } // heapManagerDtor
 
 
@@ -619,6 +619,8 @@ static void heapMasterCtor( void ) {
 	heapMaster.sbrkRemaining = 0;
 	heapMaster.sbrkExtend = malloc_heap_extend();
 	always_assert( heapMaster.sbrkExtend % heapMaster.pageSize == 0 && heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
+	heapMaster.sbrkThreadBlock = malloc_thread_block();
+	always_assert( heapMaster.sbrkExtend >= heapMaster.sbrkThreadBlock );
 	heapMaster.mmapStart = malloc_mmap_start();
 
 	// Find the closest bucket size less than or equal to the mmapStart size.
@@ -1146,7 +1148,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 				   size, heapMaster.mmapStart, errno );
 		} // if
 		heapMaster.sbrkStart = heapMaster.sbrkEnd = block;
-		rem = heapMaster.sbrkRemaining + increase - size;
+		rem = increase - size;
 
 		#ifdef __STATISTICS__
 		heapMaster.sbrkCalls += 1;
