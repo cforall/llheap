@@ -1,6 +1,8 @@
 #include "llheap.h"
 
-#include <cstdlib>										// abort
+#include <cstdio>										// snprintf, vsnprintf
+#include <cstddef>										// ptrdiff_t, size_t, NULL
+#include <cstdlib>										// abort, getenv, strtoll, EXIT_FAILURE
 #include <cstring>										// strlen, memset, memcpy
 #include <climits>										// ULONG_MAX
 #include <cstdarg>										// va_start, va_end
@@ -561,7 +563,7 @@ struct HeapMaster {
 
 // Thread-local storage is allocated lazily when the storage is accessed.
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
-static volatile bool heapMasterBootFlag CALIGN = false;	// trigger for first heap
+static volatile int heapMasterBootFlag CALIGN = 0;		// trigger for first heap
 static HeapMaster CALIGN heapMaster;					// program global
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
 static pthread_key_t pthread_key CALIGN;				// used by pthread_key_create
@@ -605,7 +607,7 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 
 static void heapMasterCtor( void ) {
 	// Singleton pattern to initialize heap master
-	always_assert( ! heapMasterBootFlag );
+	always_assert( heapMasterBootFlag == 0 );
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 
@@ -617,8 +619,8 @@ static void heapMasterCtor( void ) {
 //	heapMaster.sbrkStart = heapMaster.sbrkEnd = nullptr;
 
 	heapMaster.sbrkRemaining = 0;
-	heapMaster.sbrkExtend = malloc_heap_extend();
-	always_assert( heapMaster.sbrkExtend % heapMaster.pageSize == 0 && heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
+	heapMaster.sbrkExtend = Ceiling( malloc_heap_extend(), heapMaster.pageSize ); // round up
+	always_assert( heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
 	heapMaster.sbrkThreadBlock = malloc_thread_block();
 	always_assert( heapMaster.sbrkExtend >= heapMaster.sbrkThreadBlock );
 	heapMaster.mmapStart = malloc_mmap_start();
@@ -669,14 +671,7 @@ static void heapMasterCtor( void ) {
 	} // for
 	#endif // __FASTLOOKUP__
 
-	heapMasterBootFlag = true;
-
-	// LLHEAP CAN NOW SERVICE ALLOCATIONS.
-
-	// Register pthread destructor for all future pthreads, which might call malloc recursively during bootstrap.
-	if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
-		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
-	} // if
+	heapMasterBootFlag = 1;
 } // HeapMaster::heapMasterCtor
 
 
@@ -757,7 +752,7 @@ static Heap * getHeap( void ) {
 
 // Never called if no call to malloc/free to manually trigger BOOT_HEAP_MANAGER.
 static void heapManagerCtor( void ) {
-	if ( UNLIKELY( ! heapMasterBootFlag ) ) heapMasterCtor();
+	if ( UNLIKELY( heapMasterBootFlag == 0 ) ) heapMasterCtor(); // 1st thread? => sequential => start singleton pattern
 	assert( heapManager );
 
 	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
@@ -771,11 +766,21 @@ static void heapManagerCtor( void ) {
 	heapMaster.threadsStarted += 1;
 	#endif // __STATISTICS__
 
+	spin_release( &heapMaster.mgrLock );
+
+	// LLHEAP CAN NOW SERVICE ALLOCATIONS.
+
+	// Register pthread destructor for all future pthreads, which might call malloc recursively during bootstrap on
+	// first memory allocation.
+	if ( heapMasterBootFlag == 1 ) {					// still 1st thread? => sequential => finish singleton pattern
+		if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
+			abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
+		} // if
+		heapMasterBootFlag = 2;							// close singleton pattern
+	} // if
 	if ( int rc = pthread_setspecific( pthread_key, (void *)1 ); rc != 0 ) { // key must be non-zero to trigger destructor
 		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", rc );
 	} // if
-
-	spin_release( &heapMaster.mgrLock );
 } // heapManagerCtor
 
 
@@ -786,7 +791,7 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 	LLDEBUG( debugprt( "startup\n" ) );
 	// For static linking, startup can get here first => initialize the heap. However even with static linking, there
 	// can be be dynamic linking so heap is initialized by first call to malloc.
-	if ( ! heapMasterBootFlag ) { heapManagerCtor(); }	// sanity check
+	if ( heapMasterBootFlag == 0 ) { heapManagerCtor(); } // sanity check, start the heap
 
 	#ifdef __DEBUG__
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
@@ -1138,9 +1143,8 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	ptrdiff_t rem = heapMaster.sbrkRemaining - size;
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
-		size_t increase = Ceiling( size > heapMaster.sbrkExtend ? size : heapMaster.sbrkExtend, __ALIGN__ );
-		Heap::Storage * block;
-		block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+		size_t increase = Ceiling( Max( size, heapMaster.sbrkExtend ), __ALIGN__ );
+		Heap::Storage * block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0 );
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
 			if ( errno == ENOMEM ) { spin_release( &heapMaster.extLock ); return nullptr; }	// no memory
 			// Do not call strerror( errno ) as it may call malloc.
@@ -1156,7 +1160,13 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 		#endif // __STATISTICS__
 	} // if
 
-	void * newblock = (Heap::Storage *)heapMaster.sbrkEnd;
+	void * newblock = (Heap::Storage *)::mmap( heapMaster.sbrkEnd, Max( size, heapMaster.sbrkThreadBlock ), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
+	if ( UNLIKELY( newblock == MAP_FAILED ) ) {			// failed ?
+		if ( errno == ENOMEM ) { spin_release( &heapMaster.extLock ); return nullptr; }	// no memory
+		// Do not call strerror( errno ) as it may call malloc.
+		abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
+			   size, heapMaster.mmapStart, errno );
+	} // if
 	heapMaster.sbrkRemaining = rem;
 	heapMaster.sbrkEnd = (char *)heapMaster.sbrkEnd + size;
 
@@ -1169,7 +1179,7 @@ static void * manager_extend( size_t size ) {
 	LLDEBUG( debugprt( "manager_extend size %zd\n", size ) );
 	// If the size requested is > the current remaining reserve => increase the reserve.
 	size_t tblock = malloc_thread_block();
-	size_t increase = Ceiling( size > tblock ? size : tblock, __ALIGN__ );
+	size_t increase = Ceiling( Max( size, tblock ), __ALIGN__ );
 	void * newblock = master_extend( increase );
 
   if ( UNLIKELY( newblock == nullptr ) ) return nullptr; // no memory ?
@@ -1232,7 +1242,7 @@ static void * manager_extend( size_t size ) {
 		assert( heapManager ); \
 	} /* if */
 
-// NULL_0_ALLOC is disabled because a lot of programs incorrectly check for out of memory by just checking for a NULL
+// NULL_0_ALLOC is disabled because many programs incorrectly check for out of memory by just checking for a NULL
 // return from malloc, rather than checking both NULL return and errno == ENOMEM.
 //#define __NULL_0_ALLOC__ /* Uncomment to return null address for malloc( 0 ). */
 
@@ -2173,6 +2183,7 @@ extern "C" {
 		switch( option ) {
 		  case M_TOP_PAD:
 			heapMaster.sbrkExtend = Ceiling( value, heapMaster.pageSize );
+			always_assert( heapMaster.sbrkExtend >= 256 * 1024 ); // multiple of pagesize and >= minimum
 			return 1;
 		  case M_MMAP_THRESHOLD:
 			if ( setMmapStart( value ) ) return 1;
