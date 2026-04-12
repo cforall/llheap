@@ -24,10 +24,6 @@
 
 #define __FASTLOOKUP__									// use O(1) table lookup from allocation size to bucket size for small allocations
 #define __OWNERSHIP__									// return freed memory to owner thread
-//#define __REMOTESPIN__									// toggle spinlock / lockfree queue
-#if ! defined( __OWNERSHIP__ ) && defined( __REMOTESPIN__ )
-#warning "REMOTESPIN is ignored without OWNERSHIP; suggest commenting out REMOTESPIN"
-#endif // ! __OWNERSHIP__ && __REMOTESPIN__
 
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
@@ -159,34 +155,6 @@ static inline __attribute__((always_inline)) size_t Bsearchl( unsigned int key, 
 #define Fas( change, assn ) __atomic_exchange_n( (&(change)), (assn), __ATOMIC_SEQ_CST )
 #define Cas( change, comp, assn ) ({decltype(comp) __temp = (comp); __atomic_compare_exchange_n( (&(change)), (&(__temp)), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST ); })
 #define Casv( change, comp, assn ) __atomic_compare_exchange_n( (&(change)), (&(comp)), (assn), false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST )
-
-// pause to prevent excess processor bus usage
-#if defined( __i386 ) || defined( __x86_64 )
-	#define Pause() __asm__ __volatile__ ( "pause" : : : )
-#elif defined( __ARM_ARCH )
-	#define Pause() __asm__ __volatile__ ( "YIELD" : : : )
-#else
-	#error unsupported architecture
-#endif
-
-typedef volatile uintptr_t SpinLock_t;
-
-static inline __attribute__((always_inline)) void spin_acquire( volatile SpinLock_t * lock ) {
-	enum { SPIN_START = 4, SPIN_END = 64 * 1024, };
-	unsigned int spin = SPIN_START;
-
-	for ( unsigned int i = 1;; i += 1 ) {
-	  if ( *lock == 0 && Tas( *lock ) == 0 ) break;		// Fence
-		for ( volatile unsigned int s = 0; s < spin; s += 1 ) Pause(); // exponential spin
-		spin += spin;									// powers of 2
-		//if ( i % 64 == 0 ) spin += spin;				// slowly increase by powers of 2
-		if ( spin > SPIN_END ) spin = SPIN_END;			// cap spinning
-	} // for
-} // spin_lock
-
-static inline __attribute__((always_inline)) void spin_release( volatile SpinLock_t * lock ) {
-	Clr( *lock );										// Fence
-} // spin_unlock
 
 
 //######################### Back Trace #########################
@@ -353,7 +321,7 @@ static_assert( sizeof(HeapStatistics) == CntTriples * sizeof(HeapStatistics::cou
 			   "Heap statistics counter-triplets does not match with array size" );
 
 static bool print_buckets = false;
-static SpinLock_t printlock = 0;
+static pthread_mutex_t printlock = PTHREAD_MUTEX_INITIALIZER;
 
 static void HeapStatisticsCtor( HeapStatistics & stats ) {
 	memset( &stats, '\0', sizeof(stats) );				// very fast
@@ -420,9 +388,6 @@ struct Heap {
 
 		#ifdef __OWNERSHIP__
 		CALIGN Storage * remoteList;					// other thread remote list
-		#ifdef __REMOTESPIN__
-		SpinLock_t remoteLock;
-		#endif // __REMOTESPIN__
 		#endif // __OWNERSHIP__
 	}; // FreeHeader
 
@@ -525,8 +490,8 @@ static_assert( __DEFAULT_HEAP_EXTEND__ >= __DEFAULT_THREAD_BLOCK__, "Heap extens
 
 
 struct HeapMaster {
-	SpinLock_t extLock;									// protects allocation-buffer extension
-	SpinLock_t mgrLock;									// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
+	pthread_mutex_t extLock;							// protects allocation-buffer extension
+	pthread_mutex_t mgrLock;							// protects freeHeapManagersList, heapManagersList, heapManagersStorage, heapManagersStorageEnd
 
 	void * sbrkStart;									// start of sbrk storage
 	void * sbrkEnd;										// end of sbrk area (logical end of heap)
@@ -585,7 +550,7 @@ static size_t scrub_size = SCRUB_SIZE;
 static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	assert( heapManager );
 
-	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
+	pthread_mutex_lock( &heapMaster.mgrLock );			// protect heapMaster counters
 
 	// push heap onto stack of free heaps for reusability
 	heapManager->nextFreeHeapManager = heapMaster.freeHeapManagersList;
@@ -601,7 +566,7 @@ static void heapManagerDtor( void * ) {					// passed to pthread_key_create
 	heapMaster.threadsExited += 1;
 	#endif // __STATISTICS__
 
-	spin_release( &heapMaster.mgrLock );
+	pthread_mutex_unlock( &heapMaster.mgrLock );
 } // heapManagerDtor
 
 
@@ -611,8 +576,8 @@ static void heapMasterCtor( void ) {
 
 	heapMaster.pageSize = sysconf( _SC_PAGESIZE );
 
-	heapMaster.extLock = 0;
-	heapMaster.mgrLock = 0;
+	heapMaster.extLock = PTHREAD_MUTEX_INITIALIZER;
+	heapMaster.mgrLock = PTHREAD_MUTEX_INITIALIZER;
 
 //	char * end = (char *)sbrk( 0 );
 //	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, heapMaster.pageSize ) - end ); // move start of heap to page-size boundary
@@ -730,9 +695,6 @@ static Heap * getHeap( void ) {
 
 				#ifdef __OWNERSHIP__
 				.remoteList = nullptr,
-				#ifdef __REMOTESPIN__
-				.remoteLock = 0,
-				#endif // __REMOTESPIN__
 				#endif // __OWNERSHIP__
 			};
 		} // for
@@ -755,7 +717,7 @@ static void heapManagerCtor( void ) {
 	if ( UNLIKELY( heapMasterBootFlag == 0 ) ) heapMasterCtor(); // 1st thread? => sequential => start singleton pattern
 	assert( heapManager );
 
-	spin_acquire( &heapMaster.mgrLock );				// protect heapMaster counters
+	pthread_mutex_lock( &heapMaster.mgrLock );			// protect heapMaster counters
 
 	// get storage for heap manager
 
@@ -766,7 +728,7 @@ static void heapManagerCtor( void ) {
 	heapMaster.threadsStarted += 1;
 	#endif // __STATISTICS__
 
-	spin_release( &heapMaster.mgrLock );
+	pthread_mutex_unlock( &heapMaster.mgrLock );
 
 	// LLHEAP CAN NOW SERVICE ALLOCATIONS.
 
@@ -870,7 +832,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 	char helpText[2048];								// space for message and values
 	size_t tlen = 0, len;
 
-	spin_acquire( &printlock );							// protect printing
+	pthread_mutex_lock( &printlock );					// protect printing
 
 	len = snprintf( helpText, sizeof(helpText),
 					"\nPID: %d Heap%s statistics: (storage request/allocation)\n", getpid(), title );
@@ -943,7 +905,7 @@ static int printStats( HeapStatistics & stats, const char * title = "" ) { // se
 		tlen += write( STDERR_FILENO, helpText, len ); // file might be closed
 	} // if
 
-	spin_release( &printlock );							// protect printing
+	pthread_mutex_unlock( &printlock );					// protect printing
 	return tlen;
 } // printStats
 
@@ -1006,7 +968,7 @@ static int printStatsXML( HeapStatistics & stats, FILE * stream ) { // see mallo
 } // printStatsXML
 
 static HeapStatistics & collectStats( HeapStatistics & stats ) {
-	spin_acquire( &heapMaster.mgrLock );
+	pthread_mutex_lock( &heapMaster.mgrLock );
 
 	// Accumulate the heap master and all active thread heaps.
 	stats += heapMaster.stats;							// calls HeapStatistics +=
@@ -1014,12 +976,12 @@ static HeapStatistics & collectStats( HeapStatistics & stats ) {
 		stats += heap->stats;							// calls HeapStatistics +=
 	} // for
 
-	spin_release(&heapMaster.mgrLock);
+	pthread_mutex_unlock( &heapMaster.mgrLock );
 	return stats;
 } // collectStats
 
 static void clearStats( void ) {
-	spin_acquire( &heapMaster.mgrLock );
+	pthread_mutex_lock( &heapMaster.mgrLock );
 
 	// Zero the heap master and all active thread heaps.
 	HeapStatisticsCtor( heapMaster.stats );
@@ -1027,7 +989,7 @@ static void clearStats( void ) {
 		HeapStatisticsCtor( heap->stats );
 	} // for
 
-	spin_release(&heapMaster.mgrLock);
+	pthread_mutex_unlock( &heapMaster.mgrLock );
 } // clearStats
 #endif // __STATISTICS__
 
@@ -1138,7 +1100,7 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 
 static inline __attribute__((always_inline)) void * master_extend( size_t size ) {
 	LLDEBUG( debugprt( "master_extend size %zd\n", size ) );
-	spin_acquire( &heapMaster.extLock );
+	pthread_mutex_lock( &heapMaster.extLock );
 
 	ptrdiff_t rem = heapMaster.sbrkRemaining - size;
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
@@ -1146,7 +1108,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 		size_t increase = Ceiling( Max( size, heapMaster.sbrkExtend ), __ALIGN__ );
 		Heap::Storage * block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0 );
 		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
-			if ( errno == ENOMEM ) { spin_release( &heapMaster.extLock ); return nullptr; }	// no memory
+			if ( errno == ENOMEM ) { pthread_mutex_unlock( &heapMaster.extLock ); return nullptr; }	// no memory
 			// Do not call strerror( errno ) as it may call malloc.
 			abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
 				   size, heapMaster.mmapStart, errno );
@@ -1162,7 +1124,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 
 	void * newblock = (Heap::Storage *)::mmap( heapMaster.sbrkEnd, Max( size, heapMaster.sbrkThreadBlock ), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
 	if ( UNLIKELY( newblock == MAP_FAILED ) ) {			// failed ?
-		if ( errno == ENOMEM ) { spin_release( &heapMaster.extLock ); return nullptr; }	// no memory
+		if ( errno == ENOMEM ) { pthread_mutex_unlock( &heapMaster.extLock ); return nullptr; }	// no memory
 		// Do not call strerror( errno ) as it may call malloc.
 		abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
 			   size, heapMaster.mmapStart, errno );
@@ -1170,7 +1132,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	heapMaster.sbrkRemaining = rem;
 	heapMaster.sbrkEnd = (char *)heapMaster.sbrkEnd + size;
 
-	spin_release( &heapMaster.extLock );
+	pthread_mutex_unlock( &heapMaster.extLock );
 	return newblock;
 } // master_extend
 
@@ -1316,14 +1278,7 @@ static inline __attribute__((always_inline)) void * doMalloc( size_t size STAT_P
 			if ( UNLIKELY( freeHead->remoteList ) ) {	// returned space ?
 				LLDEBUG( debugprt( "returned " ) );
 				// Get storage by removing entire remote list, take first node, and chain remainder onto appropriate free list.
-				#ifdef __REMOTESPIN__
-				spin_acquire( &freeHead->remoteLock );
-				block = freeHead->remoteList;
-				freeHead->remoteList = nullptr;
-				spin_release( &freeHead->remoteLock );
-				#else
 				block = Fas( freeHead->remoteList, nullptr );
-				#endif // __REMOTESPIN__
 				freeHead->freeList = block->header.kind.real.next; // remainder becomes free list
 
 				#ifdef __STATISTICS__
@@ -1468,16 +1423,9 @@ static inline __attribute__((always_inline)) void doFree( void * addr ) {
 			freeHead->freeList = (Heap::Storage *)header;
 		} else {										// return to thread owner
 			LLDEBUG( debugprt( "remote\n" ) );
-			#ifdef __REMOTESPIN__
-			spin_acquire( &freeHead->remoteLock );
-			header->kind.real.next = freeHead->remoteList; // push entire remote list to bucket
-			freeHead->remoteList = (Heap::Storage *)header;
-			spin_release( &freeHead->remoteLock );
-			#else										// lock free
 			header->kind.real.next = freeHead->remoteList; // link new node to top node
 			// CAS resets header->kind.real.next = freeHead->remoteList on failure
 			while ( ! Casv( freeHead->remoteList, header->kind.real.next, (Heap::Storage *)header ) );
-			#endif // __REMOTESPIN__
 
 			assert( heap );
 
