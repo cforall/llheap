@@ -11,6 +11,7 @@ using namespace std;
 #include <ctime>										// clock
 #include <sys/time.h>									// gettimeofday
 #include <sys/resource.h>								// getrusage
+#include <locale.h>										// print commas
 #include <pthread.h>
 
 #define str( s ) #s
@@ -21,7 +22,7 @@ using namespace std;
 
 // LINEARAFF => do not use hyperthreading and fill cores on a socket => 129, 130, 131, 132, ...
 #define LINEARAFF
-#include "affinity.h"
+//#include "affinity.h"
 
 static timespec currTime() {
 	timespec t;											// nanoseconds since UNIX epoch
@@ -683,5 +684,5 @@ int main() {
 // g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread ${HOME}/software/allocators/libllheap.so -Wl,-rpath=${HOME}/software/allocators
 
 // Local Variables: //
-// compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread libllheap.o" //
+// compile-command: "g++-14 -Wall -Wextra -g -O3 -D`hostname` latency.cc -lpthread" //
 // End: //
