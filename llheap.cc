@@ -13,6 +13,13 @@
 #include <sys/mman.h>									// mmap, munmap
 #include <pthread.h>									// pthread_key_create, pthread_setspecific
 
+
+// pthread mutex locks are used because they handle priority inversion in real-time operating systems.
+
+// The return code from "write" is ignored. Basically, if write fails, trying to write out why it failed will likely
+// fail, too, so just continue.
+
+
 #define str(s) #s
 #define xstr(s) str(s)
 #define WARNING( s ) xstr( GCC diagnostic ignored str( -W ## s ) )
@@ -49,10 +56,6 @@ enum { UNDEFINED = 0xffff'ffff'ffff'ffff };
 #else
 #define LLDEBUG( stmt )
 #endif // __LL_DEBUG__
-
-
-// The return code from "write" is ignored. Basically, if write fails, trying to write out why it failed will likely
-// fail, too, so just continue.
 
 
 //######################### Helpers #########################
@@ -475,7 +478,7 @@ enum {
 
 	// The default thread block (slab) amount in units of bytes. When the current thread's block is too small for the
 	// next request, the maximum of the __DEFAULT_THREAD_BLOCK__ or request size is allocated from the heap.
-	__DEFAULT_THREAD_BLOCK__ = 1 * 10124 * 1024,
+	__DEFAULT_THREAD_BLOCK__ = 1 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
@@ -528,7 +531,15 @@ struct HeapMaster {
 
 // Thread-local storage is allocated lazily when the storage is accessed.
 static thread_local size_t PAD1 CALIGN TLSMODEL __attribute__(( unused )); // protect prior false sharing
-static volatile int heapMasterBootFlag CALIGN = 0;		// trigger for first heap
+// heapMasterBootFlag is a 3-way flag. It starts at 0. The fast path tests for 0, and if so, the llheap boot sequence is
+// triggered and heapMasterBootFlag is set to 1. As part of the boot sequence, the program thread also runs a
+// constructor, and if heapMasterBootFlag == 1, it does NOT call setspecific to register for a destructor call. Now the
+// program continues and eventually gets to the "startup" routine with initialization priority of 100. At this point,
+// the key_create generates a key for the thread destructor, and the program thread registers with it by calling
+// setspecific. This lazy setup ensures llheap is fully booted allowing key_create or setspecific to call malloc. And
+// then heapMasterBootFlag is set to 2 in the startup routine. When subsequent threads are created, their constructor
+// call sees heapMasterBootFlag == 2 and eagerly call setspecific with the destructor key.
+static volatile size_t heapMasterBootFlag = 0;			// trigger for first heap
 static HeapMaster CALIGN heapMaster;					// program global
 static thread_local Heap * heapManager CALIGN TLSMODEL = (Heap *)1; // singleton
 static pthread_key_t pthread_key CALIGN;				// used by pthread_key_create
@@ -581,7 +592,6 @@ static void heapMasterCtor( void ) {
 
 //	char * end = (char *)sbrk( 0 );
 //	heapMaster.sbrkStart = heapMaster.sbrkEnd = sbrk( (char *)Ceiling( (long unsigned int)end, heapMaster.pageSize ) - end ); // move start of heap to page-size boundary
-//	heapMaster.sbrkStart = heapMaster.sbrkEnd = nullptr;
 
 	heapMaster.sbrkRemaining = 0;
 	heapMaster.sbrkExtend = Ceiling( malloc_heap_extend(), heapMaster.pageSize ); // round up
@@ -711,6 +721,10 @@ static Heap * getHeap( void ) {
 	return heap;
 } // HeapMaster::getHeap
 
+#define SETSPECIFIC() \
+	if ( pthread_setspecific( pthread_key, (void *)1 ) ) { /* key must be non-zero to trigger destructor */ \
+		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", errno ); \
+	} // if
 
 // Never called if no call to malloc/free to manually trigger BOOT_HEAP_MANAGER.
 static void heapManagerCtor( void ) {
@@ -728,21 +742,11 @@ static void heapManagerCtor( void ) {
 	heapMaster.threadsStarted += 1;
 	#endif // __STATISTICS__
 
+	if ( heapMasterBootFlag == 2 ) {					// => not the program thread ?
+		SETSPECIFIC();
+	} // if
+
 	pthread_mutex_unlock( &heapMaster.mgrLock );
-
-	// LLHEAP CAN NOW SERVICE ALLOCATIONS.
-
-	// Register pthread destructor for all future pthreads, which might call malloc recursively during bootstrap on
-	// first memory allocation.
-	if ( heapMasterBootFlag == 1 ) {					// still 1st thread? => sequential => finish singleton pattern
-		if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
-			abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
-		} // if
-		heapMasterBootFlag = 2;							// close singleton pattern
-	} // if
-	if ( int rc = pthread_setspecific( pthread_key, (void *)1 ); rc != 0 ) { // key must be non-zero to trigger destructor
-		abort( "**** Error **** internal error: pthread_setspecific failed with errno %d.\n", rc );
-	} // if
 } // heapManagerCtor
 
 
@@ -754,6 +758,16 @@ NOWARNING( __attribute__(( constructor( 100 ) )) static void startup( void ) {, 
 	// For static linking, startup can get here first => initialize the heap. However even with static linking, there
 	// can be be dynamic linking so heap is initialized by first call to malloc.
 	if ( heapMasterBootFlag == 0 ) { heapManagerCtor(); } // sanity check, start the heap
+	always_assert( heapMasterBootFlag == 1 );			// must be program thread
+
+	// It should now be safe to call these functions even if they call malloc. These functions *should* be run by the
+	// program's thread *before* any global thread creation, hence all subsequent threads inherit this termination
+	// destructor.
+	if ( int rc = pthread_key_create( &pthread_key, heapManagerDtor ); rc != 0 ) {
+		abort( "**** Error **** internal error: pthread_key_create failed with errno %d.\n", rc );
+	} // if
+	SETSPECIFIC();
+	heapMasterBootFlag = 2;								// program thread done initialization
 
 	#ifdef __DEBUG__
 	heapManager->allocUnfreed = 0;						// clear prior allocation counts
@@ -1098,6 +1112,21 @@ static inline __attribute__((always_inline)) bool headers( const char name[] __a
 } // headers
 
 
+#define MMAP_CHECK( addr ) \
+	if ( UNLIKELY( addr == MAP_FAILED ) ) { /* failed ? */ \
+		if ( errno == ENOMEM ) { pthread_mutex_unlock( &heapMaster.extLock ); return nullptr; }	/* no memory */ \
+		/* Do not call strerror( errno ) as it may call malloc. */ \
+		abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.", \
+			   size, heapMaster.mmapStart, errno ); \
+	} /* if */
+
+// The following mimics an sbrk area but with multiple disjoint areas. The approach creates an empty address-space
+// (slab) that cannot be accessed (PROT_NONE). Then consecutive blocks of the address space are mmapped from it, until
+// the address space is full; the process then repeats with a another disjoint address space.  This approach works for
+// eager (QNX) and lazy (Linux) mapping of virtual memory. For example, the eager approach immediately creates the page
+// tables and zeros the pages, which results in a large latency bump for a large sbrk area. Hence, only the blocks are
+// mmap for access, subdividing the setup cost and spreading out the latency.
+
 static inline __attribute__((always_inline)) void * master_extend( size_t size ) {
 	LLDEBUG( debugprt( "master_extend size %zd\n", size ) );
 	pthread_mutex_lock( &heapMaster.extLock );
@@ -1106,13 +1135,8 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	if ( UNLIKELY( rem < 0 ) ) {						// negative ?
 		// If the size requested is bigger than the current remaining storage, increase the size of the heap.
 		size_t increase = Ceiling( Max( size, heapMaster.sbrkExtend ), __ALIGN__ );
-		Heap::Storage * block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0 );
-		if ( UNLIKELY( block == MAP_FAILED ) ) {		// failed ?
-			if ( errno == ENOMEM ) { pthread_mutex_unlock( &heapMaster.extLock ); return nullptr; }	// no memory
-			// Do not call strerror( errno ) as it may call malloc.
-			abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
-				   size, heapMaster.mmapStart, errno );
-		} // if
+		Heap::Storage * block = (Heap::Storage *)::mmap( 0, heapMaster.sbrkExtend, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 ); // cannot be accessed
+		MMAP_CHECK( block );
 		heapMaster.sbrkStart = heapMaster.sbrkEnd = block;
 		rem = increase - size;
 
@@ -1123,12 +1147,7 @@ static inline __attribute__((always_inline)) void * master_extend( size_t size )
 	} // if
 
 	void * newblock = (Heap::Storage *)::mmap( heapMaster.sbrkEnd, Max( size, heapMaster.sbrkThreadBlock ), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0 );
-	if ( UNLIKELY( newblock == MAP_FAILED ) ) {			// failed ?
-		if ( errno == ENOMEM ) { pthread_mutex_unlock( &heapMaster.extLock ); return nullptr; }	// no memory
-		// Do not call strerror( errno ) as it may call malloc.
-		abort( "**** Error **** attempt to allocate large object (> %zu) of size %zu bytes and mmap failed with errno %d.",
-			   size, heapMaster.mmapStart, errno );
-	} // if
+	MMAP_CHECK( newblock );
 	heapMaster.sbrkRemaining = rem;
 	heapMaster.sbrkEnd = (char *)heapMaster.sbrkEnd + size;
 
