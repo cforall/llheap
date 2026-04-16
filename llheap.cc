@@ -478,7 +478,7 @@ enum {
 
 	// The default thread block (slab) amount in units of bytes. When the current thread's block is too small for the
 	// next request, the maximum of the __DEFAULT_THREAD_BLOCK__ or request size is allocated from the heap.
-	__DEFAULT_THREAD_BLOCK__ = 1 * 1024 * 1024,
+	__DEFAULT_THREAD_BLOCK__ = 2 * 1024 * 1024,
 
 	// The mmap crossover point during allocation. Allocations less than this amount are allocated from buckets; values
 	// greater than or equal to this value are mmap from the operating system.
